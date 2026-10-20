@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: dawwerli
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+  api:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+    ports: ["5080:8080"]
+    environment:
+      ConnectionStrings__Default: Host=db;Database=dawwerli;Username=postgres;Password=${POSTGRES_PASSWORD}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      Security__PhoneHashKey: ${PHONE_HASH_KEY}
+      Security__DataProtectionKeysPath: /data/keys
+      Storage__RootPath: /data/storage
+      Storage__SigningKey: ${STORAGE_SIGNING_KEY}
+      Storage__PublicBaseUrl: ${PUBLIC_BASE_URL}
+      AdminSeed__Email: ${ADMIN_EMAIL}
+      AdminSeed__Password: ${ADMIN_PASSWORD}
+      Otp__ExposeCodeInResponse: ${EXPOSE_OTP}
+    volumes: [apidata:/data]
+volumes:
+  pgdata:
+  apidata:
