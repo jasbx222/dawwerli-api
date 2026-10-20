@@ -14,6 +14,7 @@ namespace Dawwerli.Tests;
 public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     public const string AdminEmail = "admin@test.local";
+    public string? AdminToken;
     public readonly string AdminPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
     private readonly string _db = Environment.GetEnvironmentVariable("DAWWERLI_TEST_DB")
         ?? "Host=localhost;Port=5432;Database=dawwerli_test;Username=postgres;Password=postgres";
@@ -85,9 +86,23 @@ public static class Api
         return res.GetProperty("accessToken").GetString()!;
     }
 
+    /// <summary>Seeded SuperAdmin token; enrolled and logged in once per factory (TOTP codes cannot be replayed).</summary>
     public static async Task<string> AdminAsync(HttpClient c, ApiFactory f) =>
-        (await (await c.SendAsync(Post("/api/v1/auth/admin/login", new { email = ApiFactory.AdminEmail, password = f.AdminPassword }, null))).ReadAsync())
-        .GetProperty("accessToken").GetString()!;
+        f.AdminToken ??= await AdminLoginAsync(c, ApiFactory.AdminEmail, f.AdminPassword);
+
+    /// <summary>Full admin login: password → enrollment secret → TOTP code (next unused step).</summary>
+    public static async Task<string> AdminLoginAsync(HttpClient c, string email, string password)
+    {
+        var first = await (await c.SendAsync(Post("/api/v1/auth/admin/login", new { email, password }, null))).ReadAsync();
+        if (first.GetProperty("status").GetString() != "enroll") throw new InvalidOperationException("Expected enrollment");
+        var code = TotpCode(first.GetProperty("secret").GetString()!);
+        var ok = await (await c.SendAsync(Post("/api/v1/auth/admin/login", new { email, password, code }, null))).ReadAsync();
+        return ok.GetProperty("auth").GetProperty("accessToken").GetString()!;
+    }
+
+    public static string TotpCode(string secret, int stepOffset = 0) =>
+        Dawwerli.Infrastructure.Services.TotpService.Code(Dawwerli.Infrastructure.Services.TotpService.FromBase32(secret),
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30 + stepOffset);
 
     /// <summary>Registers and verifies a page; returns a token that carries the page id.</summary>
     public static async Task<string> VerifiedPageAsync(HttpClient c, string admin, int categoryId, bool earlyAccess = false)

@@ -1528,6 +1528,10 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("AdminRole")
+                        .HasColumnType("integer")
+                        .HasColumnName("admin_role");
+
                     b.Property<string>("Area")
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)")
@@ -1583,6 +1587,18 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.Property<int>("Role")
                         .HasColumnType("integer")
                         .HasColumnName("role");
+
+                    b.Property<bool>("TotpEnabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("totp_enabled");
+
+                    b.Property<long>("TotpLastStep")
+                        .HasColumnType("bigint")
+                        .HasColumnName("totp_last_step");
+
+                    b.Property<string>("TotpSecret")
+                        .HasColumnType("text")
+                        .HasColumnName("totp_secret");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")

@@ -13,6 +13,12 @@ public class User : Entity
     public string? Area { get; set; }
     public string? Email { get; set; }
     public string? PasswordHash { get; set; }
+    public AdminRole AdminRole { get; set; }
+    /// <summary>TOTP secret, encrypted at rest. Set at enrollment start; active once TotpEnabled.</summary>
+    public string? TotpSecret { get; set; }
+    public bool TotpEnabled { get; set; }
+    /// <summary>Last accepted TOTP time step, to block code replay.</summary>
+    public long TotpLastStep { get; set; }
     public DateTime? PostingBannedUntil { get; set; }
     public int BanCount { get; set; }
     public bool IsBanned { get; set; }

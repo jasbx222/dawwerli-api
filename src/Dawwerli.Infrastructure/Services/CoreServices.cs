@@ -39,6 +39,7 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : ITokenServic
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(ClaimTypes.Role, user.Role.ToString()),
         };
+        if (user.Role == UserRole.Admin) claims.Add(new Claim(ClaimTypes.Role, user.AdminRole.ToString()));
         if (pageId is { } p) claims.Add(new Claim(AppClaims.PageId, p.ToString()));
         var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_o.SigningKey)), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(_o.Issuer, _o.Audience, claims, expires: DateTime.UtcNow.AddMinutes(_o.AccessMinutes), signingCredentials: creds);

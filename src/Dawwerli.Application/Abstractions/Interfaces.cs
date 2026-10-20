@@ -68,6 +68,31 @@ public interface ISmsSender
     Task<bool> SendOtpAsync(string phone, string code, OtpChannel channel, CancellationToken ct = default);
 }
 
+public sealed class AdminAuthOptions
+{
+    public const string Section = "AdminAuth";
+    public string TotpIssuer { get; set; } = "";
+    public int TotpDriftSteps { get; set; }
+    public int MinPasswordLength { get; set; }
+}
+
+public sealed class AuditPagingOptions
+{
+    public const string Section = "AuditPaging";
+    public int DefaultPageSize { get; set; }
+    public int MaxPageSize { get; set; }
+}
+
+public interface ITotpService
+{
+    /// <summary>New random secret, returned base32 (for the authenticator) and protected (for storage).</summary>
+    (string Base32, string Protected) NewSecret();
+    string Reveal(string protectedSecret);
+    string OtpAuthUri(string account, string base32Secret);
+    /// <summary>Returns the matched time step, or null when the code is wrong.</summary>
+    long? Verify(string protectedSecret, string code, long lastStep);
+}
+
 public interface IPasswordHasher
 {
     string Hash(string password);

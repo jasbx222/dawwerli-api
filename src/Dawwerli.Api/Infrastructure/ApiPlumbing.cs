@@ -26,6 +26,17 @@ public static class Roles
     public const string Admin = nameof(UserRole.Admin);
 }
 
+/// <summary>Back-office permission sets; combined with the Admin role on every admin endpoint.</summary>
+public static class AdminRoles
+{
+    public const string Super = nameof(AdminRole.SuperAdmin);
+    public const string Moderation = nameof(AdminRole.SuperAdmin) + "," + nameof(AdminRole.Moderator);
+    public const string Finance = nameof(AdminRole.SuperAdmin) + "," + nameof(AdminRole.Finance);
+
+    public static string? Of(ClaimsPrincipal user) =>
+        Enum.GetNames<AdminRole>().FirstOrDefault(user.IsInRole);
+}
+
 /// <summary>Maps <see cref="Result"/> errors to RFC 7807 ProblemDetails with a stable "code".</summary>
 public static class ProblemMapping
 {

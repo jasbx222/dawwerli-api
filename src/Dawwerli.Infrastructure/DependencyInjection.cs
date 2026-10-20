@@ -33,6 +33,9 @@ public static class DependencyInjection
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddSingleton<IPhoneProtector, PhoneProtector>();
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+        services.Configure<AdminAuthOptions>(config.GetSection(AdminAuthOptions.Section));
+        services.Configure<AuditPagingOptions>(config.GetSection(AuditPagingOptions.Section));
+        services.AddSingleton<ITotpService, TotpService>();
         services.AddSingleton<LocalStorage>();
         services.AddSingleton<IStorage>(sp => sp.GetRequiredService<LocalStorage>());
         services.AddSingleton<ITextCatalog, ConfigTextCatalog>();

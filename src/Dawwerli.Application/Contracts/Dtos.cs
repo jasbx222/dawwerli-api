@@ -8,7 +8,9 @@ public sealed record OtpVerifyDto(string Phone, string Code, string Role, string
 public sealed record AuthResultDto(string AccessToken, string RefreshToken, int ExpiresIn, bool NeedsProfile, string Role, string? PageStatus);
 public sealed record SwitchRoleDto(string Role, string? DeviceId);
 public sealed record RefreshDto(string RefreshToken, string? DeviceId);
-public sealed record AdminLoginDto(string Email, string Password);
+public sealed record AdminLoginDto(string Email, string Password, string? Code = null);
+/// <summary>Status: ok (Auth set) | enroll (scan Secret/OtpAuthUri, then log in again with Code) | code_required.</summary>
+public sealed record AdminLoginResultDto(string Status, AuthResultDto? Auth, string? Secret = null, string? OtpAuthUri = null);
 public sealed record ProfileDto(string Name, int GovernorateId, string Area);
 public sealed record MeDto(Guid Id, string Role, string? Name, int? GovernorateId, string? Governorate, string? Area, string Phone, Guid? PageId, string? PageStatus);
 public sealed record StrikeDto(Guid Id, string Reason, DateTime At, bool Frozen);
@@ -121,3 +123,9 @@ public sealed record AdminReportDto(Guid Id, Guid ReporterUserId, string Target,
 public sealed record AdminDisputeDto(Guid Id, Guid OpenedByUserId, Guid? OrderId, Guid? SubjectId, string Type, string Status, string Text, IReadOnlyList<string> Photos, string? Decision, DateTime CreatedAt, DateTime DecideBy);
 public sealed record AdminUserDto(Guid Id, string Role, string? Name, string? Phone, string? Governorate, bool IsBanned, DateTime? PostingBannedUntil, int BanCount, DateTime CreatedAt);
 public sealed record AdminCategoryDto(int Id, string Slug, string Name, string? Emoji, string? ImageKey, string? ImageUrl, string Badge, int SortOrder, bool IsActive, IReadOnlyList<string> Keywords, string FieldSchema);
+public sealed record AdminAccountDto(Guid Id, string Email, string? Name, string AdminRole, bool TotpEnabled, DateTime CreatedAt);
+public sealed record CreateAdminDto(string Email, string Name, string Password, string AdminRole);
+public sealed record AdminRoleDto(string AdminRole);
+public sealed record PricingDto(bool BillingEnabled, long SelectionFee, int FreeSelections, long EarlyAccessMonthly, int EarlyAccessDays, long BannerDaily,
+    long FeaturedWeekly, long SponsoredOffer, long MinTopUp, IReadOnlyList<string> TopUpMethods);
+public sealed record PagedDto<T>(IReadOnlyList<T> Items, int Total, int Page, int PageSize);

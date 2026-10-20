@@ -10,7 +10,8 @@ namespace Dawwerli.Application.Services;
 
 /// <summary>Back-office operations. Every write is audited.</summary>
 public sealed class AdminService(Shared s, WalletService wallet, TrustService trust, AdsService ads, INotifier notifier, ITextCatalog texts,
-    IRulesProvider rulesProvider, IPhoneProtector phones)
+    IRulesProvider rulesProvider, IPhoneProtector phones,
+    IPasswordHasher passwords, Microsoft.Extensions.Options.IOptions<AdminAuthOptions> authOptions, Microsoft.Extensions.Options.IOptions<AuditPagingOptions> auditOptions)
 {
     private IAppDbContext Db => s.Db;
     public const string CategoryImageFolder = "categories";
@@ -62,6 +63,22 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
         await Db.AdCampaigns.Where(a => a.PageId == id && a.Status == AdStatus.Active).ExecuteUpdateAsync(x => x.SetProperty(a => a.Status, AdStatus.PausedSuspended), ct);
         s.Audit("page.suspend", nameof(Page), id, JsonSerializer.Serialize(dto));
         await Db.SaveChangesAsync(ct);
+        return Result.Ok();
+    }
+
+    /// <summary>Ends a suspension early and resumes ads that the suspension paused.</summary>
+    public async Task<Result> UnsuspendPageAsync(Guid id, ReasonDto dto, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(dto.Reason)) return Error.Validation("reason.required", "Reason is required");
+        var res = await PageAsync(id, ct);
+        if (!res.IsSuccess) return res.Error!;
+        var p = res.Value!;
+        if (!(p.SuspendedUntil > s.Now)) return Error.Conflict("page.not_suspended", "Page is not suspended");
+        p.SuspendedUntil = null;
+        await Db.AdCampaigns.Where(a => a.PageId == id && a.Status == AdStatus.PausedSuspended).ExecuteUpdateAsync(x => x.SetProperty(a => a.Status, AdStatus.Active), ct);
+        s.Audit("page.unsuspend", nameof(Page), id, JsonSerializer.Serialize(dto));
+        await Db.SaveChangesAsync(ct);
+        await notifier.NotifyAsync(p.UserId, texts.Get("page.unsuspended"), dto.Reason, "/seller/home", ct);
         return Result.Ok();
     }
 
@@ -342,7 +359,94 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
             await Db.Disputes.CountAsync(d => d.Status == CaseStatus.Open || d.Status == CaseStatus.UnderReview, ct));
     }
 
-    public async Task<IReadOnlyList<AuditDto>> AuditAsync(int take, CancellationToken ct) =>
-        await Db.AuditLogs.OrderByDescending(a => a.CreatedAt).Take(take)
+    public async Task<PagedDto<AuditDto>> AuditAsync(int? page, int? pageSize, string? action, CancellationToken ct)
+    {
+        var o = auditOptions.Value;
+        var size = Math.Clamp(pageSize ?? o.DefaultPageSize, 1, o.MaxPageSize);
+        var number = Math.Max(page ?? 1, 1);
+        var q = Db.AuditLogs.AsQueryable();
+        if (!string.IsNullOrWhiteSpace(action)) q = q.Where(a => a.Action.StartsWith(action));
+        var total = await q.CountAsync(ct);
+        var items = await q.OrderByDescending(a => a.CreatedAt).Skip((number - 1) * size).Take(size)
             .Select(a => new AuditDto(a.Id, a.ActorUserId, a.Action, a.EntityName, a.EntityId, a.Data, a.CreatedAt)).ToListAsync(ct);
+        return new PagedDto<AuditDto>(items, total, number, size);
+    }
+
+    /// <summary>Finance-only subset of the rules: prices and billing switches.</summary>
+    public async Task<Result> SavePricingAsync(PricingDto dto, CancellationToken ct)
+    {
+        if (new[] { dto.SelectionFee, dto.EarlyAccessMonthly, dto.BannerDaily, dto.FeaturedWeekly, dto.SponsoredOffer, dto.MinTopUp }.Any(v => v < 0)
+            || dto.FreeSelections < 0 || dto.EarlyAccessDays < 1 || dto.TopUpMethods.Count == 0 || dto.TopUpMethods.Any(string.IsNullOrWhiteSpace))
+            return Error.Validation("pricing.invalid", "Prices must be non-negative and at least one top-up method is required");
+        var r = await rulesProvider.GetAsync(ct);
+        r.BillingEnabled = dto.BillingEnabled; r.SelectionFee = dto.SelectionFee; r.FreeSelections = dto.FreeSelections;
+        r.EarlyAccessMonthly = dto.EarlyAccessMonthly; r.EarlyAccessDays = dto.EarlyAccessDays; r.BannerDaily = dto.BannerDaily;
+        r.FeaturedWeekly = dto.FeaturedWeekly; r.SponsoredOffer = dto.SponsoredOffer; r.MinTopUp = dto.MinTopUp; r.TopUpMethods = dto.TopUpMethods.Select(m => m.Trim()).ToArray();
+        await rulesProvider.UpdateAsync(r, ct);
+        s.Audit("settings.pricing", "Settings", 1, JsonSerializer.Serialize(dto));
+        await Db.SaveChangesAsync(ct);
+        return Result.Ok();
+    }
+
+    public async Task<IReadOnlyList<AdminAccountDto>> AdminsAsync(CancellationToken ct) =>
+        await Db.Users.Where(u => u.Role == UserRole.Admin && u.DeletedAt == null).OrderBy(u => u.CreatedAt)
+            .Select(u => new AdminAccountDto(u.Id, u.Email!, u.Name, u.AdminRole.ToString(), u.TotpEnabled, u.CreatedAt)).ToListAsync(ct);
+
+    public async Task<Result<Guid>> CreateAdminAsync(CreateAdminDto dto, CancellationToken ct)
+    {
+        var email = dto.Email?.Trim().ToLowerInvariant() ?? "";
+        if (!System.Net.Mail.MailAddress.TryCreate(email, out _)) return Error.Validation("admin.email", "Valid email is required");
+        if (!Enum.TryParse<AdminRole>(dto.AdminRole, true, out var role)) return Errors.BadEnum("adminRole");
+        if ((dto.Password ?? "").Length < authOptions.Value.MinPasswordLength) return Error.Validation("admin.password", "Password is too short");
+        if (await Db.Users.AnyAsync(u => u.Email == email, ct)) return Error.Conflict("admin.email", "Email already used");
+        var u = new User { Role = UserRole.Admin, AdminRole = role, Email = email, Name = dto.Name?.Trim(), PasswordHash = passwords.Hash(dto.Password!), PhoneHash = $"admin:{email}" };
+        Db.Users.Add(u);
+        s.Audit("admin.create", nameof(User), u.Id, JsonSerializer.Serialize(new { email, role = role.ToString() }));
+        await Db.SaveChangesAsync(ct);
+        return u.Id;
+    }
+
+    private async Task<Result<User>> OtherAdminAsync(Guid id, CancellationToken ct)
+    {
+        if (id == s.Me.UserId) return Error.Conflict("admin.self", "You cannot change your own admin account");
+        return await Db.Users.FirstOrDefaultAsync(u => u.Id == id && u.Role == UserRole.Admin, ct) is { } u ? u : Error.NotFound("admin");
+    }
+
+    public async Task<Result> SetAdminRoleAsync(Guid id, AdminRoleDto dto, CancellationToken ct)
+    {
+        if (!Enum.TryParse<AdminRole>(dto.AdminRole, true, out var role)) return Errors.BadEnum("adminRole");
+        var res = await OtherAdminAsync(id, ct);
+        if (!res.IsSuccess) return res.Error!;
+        res.Value!.AdminRole = role;
+        await RevokeSessionsAsync(id, ct);
+        s.Audit("admin.role", nameof(User), id, JsonSerializer.Serialize(dto));
+        await Db.SaveChangesAsync(ct);
+        return Result.Ok();
+    }
+
+    public async Task<Result> ResetAdminTotpAsync(Guid id, CancellationToken ct)
+    {
+        var res = await OtherAdminAsync(id, ct);
+        if (!res.IsSuccess) return res.Error!;
+        var u = res.Value!;
+        u.TotpSecret = null; u.TotpEnabled = false; u.TotpLastStep = 0;
+        await RevokeSessionsAsync(id, ct);
+        s.Audit("admin.totp_reset", nameof(User), id);
+        await Db.SaveChangesAsync(ct);
+        return Result.Ok();
+    }
+
+    public async Task<Result> SetAdminDisabledAsync(Guid id, bool disabled, CancellationToken ct)
+    {
+        var res = await OtherAdminAsync(id, ct);
+        if (!res.IsSuccess) return res.Error!;
+        res.Value!.IsBanned = disabled;
+        if (disabled) await RevokeSessionsAsync(id, ct);
+        s.Audit(disabled ? "admin.disable" : "admin.enable", nameof(User), id);
+        await Db.SaveChangesAsync(ct);
+        return Result.Ok();
+    }
+
+    private Task RevokeSessionsAsync(Guid userId, CancellationToken ct) =>
+        Db.RefreshTokens.Where(t => t.UserId == userId && t.RevokedAt == null).ExecuteUpdateAsync(x => x.SetProperty(t => t.RevokedAt, s.Now), ct);
 }

@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 
 namespace Dawwerli.Application.Services;
 
-public sealed class AuthService(IAppDbContext db, IClock clock, IRulesProvider rulesProvider, IPhoneProtector phones,
+public sealed class AuthService(ITotpService totp, IAppDbContext db, IClock clock, IRulesProvider rulesProvider, IPhoneProtector phones,
     ISmsSender sms, ITokenService tokens, IPasswordHasher passwords, IOptions<OtpOptions> otpOptions)
 {
     public async Task<Result<OtpSentDto>> RequestOtpAsync(OtpRequestDto dto, CancellationToken ct)
@@ -147,13 +147,29 @@ public sealed class AuthService(IAppDbContext db, IClock clock, IRulesProvider r
         return Result.Ok();
     }
 
-    public async Task<Result<AuthResultDto>> AdminLoginAsync(AdminLoginDto dto, CancellationToken ct)
+    /// <summary>Password + TOTP. First login returns an enrollment secret; the next login with a valid code activates 2FA.</summary>
+    public async Task<Result<AdminLoginResultDto>> AdminLoginAsync(AdminLoginDto dto, CancellationToken ct)
     {
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == dto.Email && u.Role == UserRole.Admin, ct);
-        if (user?.PasswordHash is null || !passwords.Verify(dto.Password, user.PasswordHash))
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == dto.Email && u.Role == UserRole.Admin && u.DeletedAt == null, ct);
+        if (user?.PasswordHash is null || user.IsBanned || !passwords.Verify(dto.Password, user.PasswordHash))
             return Error.Unauthorized("auth.credentials", "Wrong email or password");
+        if (string.IsNullOrWhiteSpace(dto.Code))
+        {
+            if (user.TotpEnabled) return new AdminLoginResultDto("code_required", null);
+            if (user.TotpSecret is null)
+            {
+                user.TotpSecret = totp.NewSecret().Protected;
+                await db.SaveChangesAsync(ct);
+            }
+            var secret = totp.Reveal(user.TotpSecret);
+            return new AdminLoginResultDto("enroll", null, secret, totp.OtpAuthUri(user.Email!, secret));
+        }
+        if (user.TotpSecret is null || totp.Verify(user.TotpSecret, dto.Code.Trim(), user.TotpLastStep) is not { } step)
+            return Error.Unauthorized("auth.totp", "Wrong or reused authenticator code");
+        user.TotpLastStep = step;
+        user.TotpEnabled = true;
         var issued = await IssueAsync(user, null, Guid.NewGuid(), null, ct);
-        return new AuthResultDto(issued.AccessToken, issued.RefreshToken, issued.ExpiresIn, false, user.Role.Code(), null);
+        return new AdminLoginResultDto("ok", new AuthResultDto(issued.AccessToken, issued.RefreshToken, issued.ExpiresIn, false, user.Role.Code(), null));
     }
 
     private async Task<IssuedTokens> IssueAsync(User user, Guid? pageId, Guid family, string? deviceId, CancellationToken ct)

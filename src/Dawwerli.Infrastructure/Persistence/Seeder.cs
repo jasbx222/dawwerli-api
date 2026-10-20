@@ -61,7 +61,7 @@ public sealed class Seeder(AppDbContext db, IConfiguration config, IStorage stor
         var a = admin.Value;
         if (!string.IsNullOrWhiteSpace(a.Email) && !string.IsNullOrWhiteSpace(a.Password) && !await db.Users.AnyAsync(u => u.Email == a.Email, ct))
         {
-            db.Users.Add(new User { Role = UserRole.Admin, Email = a.Email, PasswordHash = passwords.Hash(a.Password), PhoneHash = $"admin:{a.Email}", Name = "Admin" });
+            db.Users.Add(new User { Role = UserRole.Admin, AdminRole = AdminRole.SuperAdmin, Email = a.Email, PasswordHash = passwords.Hash(a.Password), PhoneHash = $"admin:{a.Email}", Name = "Admin" });
             log.LogInformation("Seeded admin account");
         }
         await db.SaveChangesAsync(ct);

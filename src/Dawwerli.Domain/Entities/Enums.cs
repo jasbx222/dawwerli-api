@@ -1,6 +1,8 @@
 namespace Dawwerli.Domain.Entities;
 
 public enum UserRole { Customer, Page, Admin }
+/// <summary>Back-office permission level; only meaningful when Role == Admin.</summary>
+public enum AdminRole { SuperAdmin, Moderator, Finance }
 public enum OtpChannel { Sms, WhatsApp }
 public enum PageStatus { Pending, Verified, Rejected, Suspended, Banned }
 public enum InputMode { Photo, Text, Voice }

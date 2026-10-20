@@ -47,7 +47,7 @@ public class AdminAuthorizationTests(ApiFactory factory)
     public async Task Admin_login_rejects_wrong_password_and_admin_token_reaches_admin_routes()
     {
         var c = await factory.ClientAsync();
-        var bad = await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email = ApiFactory.AdminEmail, password = "wrong-password" });
+        var bad = await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email = ApiFactory.AdminEmail, password = "wrong-password", code = "123456" });
         Assert.False(bad.IsSuccessStatusCode);
         var admin = await Api.AdminAsync(c, factory);
         Assert.Equal(HttpStatusCode.OK, (await c.SendAsync(Req("GET", "/api/admin/v1/users", admin))).StatusCode);
