@@ -115,3 +115,8 @@ public sealed record KpiDto(int RequestsToday, int Requests7d, int Requests30d, 
     double ReceiptRate, double ComplaintRate, long Revenue, long AdsRevenue, int ActivePages, int PendingPages, int PendingTopUps, int OpenDisputes);
 public sealed record AdminPageDto(Guid Id, string Name, string Instagram, string Status, string BioCode, double Rating, int Deals, long Balance, DateTime CreatedAt, string? Phone);
 public sealed record AuditDto(Guid Id, Guid ActorUserId, string Action, string Entity, string EntityId, string Data, DateTime At);
+
+public sealed record AdminTopUpDto(Guid Id, Guid PageId, string PageName, string Method, string Ref, long Amount, string? ReceiptUrl, DateTime At, string Status);
+public sealed record AdminReportDto(Guid Id, Guid ReporterUserId, string Target, Guid TargetId, Guid? OrderId, Guid? OfferId, string Reason, string Text, string? PhotoUrl, string Status, DateTime At);
+public sealed record AdminDisputeDto(Guid Id, Guid OpenedByUserId, Guid? OrderId, Guid? SubjectId, string Type, string Status, string Text, IReadOnlyList<string> Photos, string? Decision, DateTime CreatedAt, DateTime DecideBy);
+public sealed record AdminUserDto(Guid Id, string Role, string? Name, string? Phone, string? Governorate, bool IsBanned, DateTime? PostingBannedUntil, int BanCount, DateTime CreatedAt);

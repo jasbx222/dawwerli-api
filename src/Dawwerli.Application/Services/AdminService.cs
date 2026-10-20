@@ -87,8 +87,23 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
         return Result.Ok();
     }
 
-    public async Task<IReadOnlyList<TopUpDto>> TopUpsAsync(CancellationToken ct) =>
-        (await Db.TopUps.Where(t => t.Status == TopUpStatus.Pending).OrderBy(t => t.CreatedAt).ToListAsync(ct)).Select(WalletService.ToDto).ToList();
+    public async Task<IReadOnlyList<AdminTopUpDto>> TopUpsAsync(string? status, CancellationToken ct)
+    {
+        var st = EnumText.TryParse<TopUpStatus>(status, out var x) ? x : TopUpStatus.Pending;
+        var rows = await (from t in Db.TopUps join p in Db.Pages on t.PageId equals p.Id where t.Status == st orderby t.CreatedAt
+            select new { t, p.Name }).Take(200).ToListAsync(ct);
+        return rows.Select(r => new AdminTopUpDto(r.t.Id, r.t.PageId, r.Name, r.t.Method, r.t.TransactionRef, r.t.Amount, s.Url(r.t.ReceiptKey),
+            r.t.CreatedAt, r.t.Status.Code())).ToList();
+    }
+
+    public async Task<IReadOnlyList<AdminUserDto>> UsersAsync(string? role, bool? banned, CancellationToken ct)
+    {
+        var q = Db.Users.Include(u => u.Governorate).Where(u => u.DeletedAt == null);
+        if (EnumText.TryParse<UserRole>(role, out var r)) q = q.Where(u => u.Role == r);
+        if (banned is { } b) q = q.Where(u => u.IsBanned == b);
+        return (await q.OrderByDescending(u => u.CreatedAt).Take(200).ToListAsync(ct)).Select(u => new AdminUserDto(u.Id, u.Role.Code(), u.Name,
+            u.PhoneEncrypted == "" ? null : phones.Decrypt(u.PhoneEncrypted), u.Governorate?.Name, u.IsBanned, u.PostingBannedUntil, u.BanCount, u.CreatedAt)).ToList();
+    }
 
     public async Task<Result> ReviewTopUpAsync(Guid id, bool approve, CancellationToken ct)
     {
@@ -146,9 +161,10 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
         return Result.Ok();
     }
 
-    public async Task<IReadOnlyList<DisputeViewDto>> DisputesAsync(CancellationToken ct) =>
+    public async Task<IReadOnlyList<AdminDisputeDto>> DisputesAsync(CancellationToken ct) =>
         (await Db.Disputes.Where(d => d.Status == CaseStatus.Open || d.Status == CaseStatus.UnderReview).OrderBy(d => d.DecideBy).ToListAsync(ct))
-        .Select(TrustService.ToDto).ToList();
+        .Select(d => new AdminDisputeDto(d.Id, d.OpenedByUserId, d.OrderId, d.SubjectId, d.Type.Code(), d.Status.Code(), d.Text,
+            d.Photos.Select(k => s.Url(k)).OfType<string>().ToList(), d.Decision, d.CreatedAt, d.DecideBy)).ToList();
 
     /// <summary>Accept = the opener is right. Applies strikes/marks per the rules.</summary>
     public async Task<Result> ResolveDisputeAsync(Guid id, ResolveDto dto, CancellationToken ct)
@@ -197,8 +213,10 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
         return Result.Ok();
     }
 
-    public async Task<IReadOnlyList<Report>> ReportsAsync(CancellationToken ct) =>
-        await Db.Reports.Where(r => r.Status == CaseStatus.Open || r.Status == CaseStatus.UnderReview).OrderBy(r => r.CreatedAt).ToListAsync(ct);
+    public async Task<IReadOnlyList<AdminReportDto>> ReportsAsync(CancellationToken ct) =>
+        (await Db.Reports.Where(r => r.Status == CaseStatus.Open || r.Status == CaseStatus.UnderReview).OrderBy(r => r.CreatedAt).ToListAsync(ct))
+        .Select(r => new AdminReportDto(r.Id, r.ReporterUserId, r.Target.Code(), r.TargetId, r.OrderId, r.OfferId, r.Reason.Code(), r.Text,
+            s.Url(r.PhotoKey), r.Status.Code(), r.CreatedAt)).ToList();
 
     /// <summary>Accept = report is valid: strike the customer / complaint-mark the page. A ghost report also refunds the page.</summary>
     public async Task<Result> ResolveReportAsync(Guid id, ResolveDto dto, CancellationToken ct)

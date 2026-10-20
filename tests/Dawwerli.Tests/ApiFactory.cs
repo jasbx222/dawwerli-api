@@ -34,6 +34,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         b.UseSetting("Jobs:Enabled", "false");
         b.UseSetting("RateLimits:OtpPerMinute", "10000");
         b.UseSetting("RateLimits:GlobalPerMinute", "100000");
+        b.UseSetting("RateLimits:AdminLoginPerMinute", "10000");
         b.UseSetting("Database:MigrateAndSeedOnStartup", "false");
     }
 

@@ -27,6 +27,6 @@ public sealed class AuthController(AuthService auth, ICurrentUser me) : AppContr
     [Authorize, HttpPost("switch-role")]
     public async Task<IActionResult> SwitchRole(SwitchRoleDto dto, CancellationToken ct) => From(await auth.SwitchRoleAsync(me.UserId, dto.Role, dto.DeviceId, ct));
 
-    [HttpPost("admin/login")]
+    [HttpPost("admin/login"), EnableRateLimiting(RateLimitPolicies.AdminLogin)]
     public async Task<IActionResult> AdminLogin(AdminLoginDto dto, CancellationToken ct) => From(await auth.AdminLoginAsync(dto, ct));
 }

@@ -54,6 +54,9 @@ builder.Services.AddRateLimiter(o =>
     o.AddPolicy(RateLimitPolicies.Otp, ctx => RateLimitPartition.GetFixedWindowLimiter(
         ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = limits.GetValue<int>("OtpPerMinute"), Window = TimeSpan.FromMinutes(1) }));
+    o.AddPolicy(RateLimitPolicies.AdminLogin, ctx => RateLimitPartition.GetFixedWindowLimiter(
+        ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = limits.GetValue<int>("AdminLoginPerMinute"), Window = TimeSpan.FromMinutes(1) }));
     o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx => RateLimitPartition.GetFixedWindowLimiter(
         ctx.User.Identity?.IsAuthenticated == true ? ctx.User.Identity.Name ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "u" : ctx.Connection.RemoteIpAddress?.ToString() ?? "anon",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = limits.GetValue<int>("GlobalPerMinute"), Window = TimeSpan.FromMinutes(1) }));
@@ -72,7 +75,9 @@ builder.Services.AddSwaggerGen(o =>
     o.AddSecurityDefinition("Bearer", scheme);
     o.AddSecurityRequirement(new OpenApiSecurityRequirement { [scheme] = [] });
 });
-builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(config.GetSection("Cors:Origins").Get<string[]>() ?? []).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+var corsOrigins = config.GetSection("Cors:Origins").Get<string[]>() ?? [];
+if (corsOrigins.Any(o => o.Contains('*'))) throw new InvalidOperationException("Cors:Origins must list exact origins; wildcards are not allowed.");
+builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(corsOrigins).WithHeaders("Authorization", "Content-Type").WithMethods("GET", "POST", "PUT", "PATCH", "DELETE")));
 
 var app = builder.Build();
 
@@ -113,6 +118,7 @@ app.Run();
 public static class RateLimitPolicies
 {
     public const string Otp = "otp";
+    public const string AdminLogin = "admin-login";
 }
 
 public partial class Program;
