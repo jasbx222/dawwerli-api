@@ -13,4 +13,6 @@ public sealed class OtpOptions
     public const string Section = "Otp";
     /// <summary>Development only: echo the code in the API response so the app can be tested without an SMS gateway.</summary>
     public bool ExposeCodeInResponse { get; set; }
+    /// <summary>Test deployments only: when set, every OTP equals this code and no SMS is sent.</summary>
+    public string? FixedCode { get; set; }
 }

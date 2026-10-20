@@ -33,13 +33,14 @@ public sealed class AuthService(IAppDbContext db, IClock clock, IRulesProvider r
         if (dto.SmsNotReceived) ch.FailedSends++;
         ch.Channel = ch.FailedSends >= rules.OtpSmsFailuresBeforeWhatsApp ? OtpChannel.WhatsApp : OtpChannel.Sms;
 
-        var code = RandomNumberGenerator.GetInt32(0, (int)Math.Pow(10, rules.OtpLength)).ToString().PadLeft(rules.OtpLength, '0');
+        var fixedCode = otpOptions.Value.FixedCode;
+        var code = !string.IsNullOrWhiteSpace(fixedCode) ? fixedCode : RandomNumberGenerator.GetInt32(0, (int)Math.Pow(10, rules.OtpLength)).ToString().PadLeft(rules.OtpLength, '0');
         ch.CodeHash = tokens.HashToken(hash + code);
         ch.ExpiresAt = now.AddSeconds(rules.OtpExpirySec);
         ch.LastSentAt = now;
         ch.SendCount++;
         ch.WrongAttempts = 0;
-        if (!await sms.SendOtpAsync(dto.Phone, code, ch.Channel, ct)) ch.FailedSends++;
+        if (string.IsNullOrWhiteSpace(fixedCode) && !await sms.SendOtpAsync(dto.Phone, code, ch.Channel, ct)) ch.FailedSends++;
         await db.SaveChangesAsync(ct);
         return new OtpSentDto(ch.Channel.Code(), rules.OtpExpirySec, rules.OtpResendSec,
             otpOptions.Value.ExposeCodeInResponse ? code : null);
