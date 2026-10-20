@@ -3,6 +3,7 @@ using Dawwerli.Application.Abstractions;
 using Dawwerli.Application.Contracts;
 using Dawwerli.Domain.Common;
 using Dawwerli.Domain.Entities;
+using Dawwerli.Domain.Rules;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -52,22 +53,8 @@ public sealed class AuthService(IAppDbContext db, IClock clock, IRulesProvider r
         var hash = phones.Hash(dto.Phone);
         var ch = await db.OtpChallenges.Where(c => c.PhoneHash == hash && !c.Consumed)
             .OrderByDescending(c => c.CreatedAt).FirstOrDefaultAsync(ct);
-        if (ch is null) return Error.Rule("otp.expired", "Request a new code");
-        if (ch.LockedUntil > now) return Locked(ch.LockedUntil.Value, now);
-        if (ch.ExpiresAt <= now) return Error.Rule("otp.expired", "Code expired");
-
-        if (!CryptographicOperations.FixedTimeEquals(
-                System.Text.Encoding.UTF8.GetBytes(ch.CodeHash),
-                System.Text.Encoding.UTF8.GetBytes(tokens.HashToken(hash + dto.Code))))
-        {
-            ch.WrongAttempts++;
-            if (ch.WrongAttempts >= rules.OtpMaxWrong) ch.LockedUntil = now.AddMinutes(rules.OtpLockMin);
-            await db.SaveChangesAsync(ct);
-            if (ch.LockedUntil > now) return Locked(ch.LockedUntil.Value, now);
-            return new Error(ErrorKind.BusinessRule, "otp.wrong", "Wrong code",
-                new Dictionary<string, object?> { ["attemptsLeft"] = rules.OtpMaxWrong - ch.WrongAttempts });
-        }
-
+        var check = await CheckCodeAsync(ch, hash, dto.Code, rules, now, ct);
+        if (!check.IsSuccess) return check.Error!;
         ch.Consumed = true;
         var user = await db.Users.FirstOrDefaultAsync(u => u.PhoneHash == hash, ct);
         if (user is { IsBanned: true }) return Error.Forbidden("account.banned", "Account is banned");
@@ -81,6 +68,42 @@ public sealed class AuthService(IAppDbContext db, IClock clock, IRulesProvider r
         var issued = await IssueAsync(user, page?.Id, Guid.NewGuid(), dto.DeviceId, ct);
         return new AuthResultDto(issued.AccessToken, issued.RefreshToken, issued.ExpiresIn,
             role == UserRole.Customer ? user.NeedsProfile : page is null, role.Code(), page?.Status.Code());
+    }
+
+    /// <summary>Checks a code sent to <paramref name="phone"/> (e.g. to confirm account deletion) and consumes it.</summary>
+    public async Task<Result> ConfirmCodeAsync(string phone, string code, CancellationToken ct)
+    {
+        var rules = await rulesProvider.GetAsync(ct);
+        var now = clock.UtcNow;
+        var hash = phones.Hash(phone);
+        var ch = await db.OtpChallenges.Where(c => c.PhoneHash == hash && !c.Consumed)
+            .OrderByDescending(c => c.CreatedAt).FirstOrDefaultAsync(ct);
+        var check = await CheckCodeAsync(ch, hash, code, rules, now, ct);
+        if (!check.IsSuccess) return check;
+        ch!.Consumed = true;
+        await db.SaveChangesAsync(ct);
+        return Result.Ok();
+    }
+
+    private async Task<Result> CheckCodeAsync(OtpChallenge? ch, string hash, string code, BusinessRules rules, DateTime now, CancellationToken ct)
+    {
+        if (ch is null) return Error.Rule("otp.expired", "Request a new code");
+        if (ch.LockedUntil > now) return Locked(ch.LockedUntil.Value, now);
+        if (ch.ExpiresAt <= now) return Error.Rule("otp.expired", "Code expired");
+
+        if (!CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(ch.CodeHash),
+                System.Text.Encoding.UTF8.GetBytes(tokens.HashToken(hash + code))))
+        {
+            ch.WrongAttempts++;
+            if (ch.WrongAttempts >= rules.OtpMaxWrong) ch.LockedUntil = now.AddMinutes(rules.OtpLockMin);
+            await db.SaveChangesAsync(ct);
+            if (ch.LockedUntil > now) return Locked(ch.LockedUntil.Value, now);
+            return new Error(ErrorKind.BusinessRule, "otp.wrong", "Wrong code",
+                new Dictionary<string, object?> { ["attemptsLeft"] = rules.OtpMaxWrong - ch.WrongAttempts });
+        }
+
+        return Result.Ok();
     }
 
     public async Task<Result<AuthResultDto>> RefreshAsync(RefreshDto dto, CancellationToken ct)

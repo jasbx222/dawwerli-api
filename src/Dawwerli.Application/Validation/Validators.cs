@@ -113,3 +113,12 @@ public sealed class CreateDisputeValidator : AbstractValidator<CreateDisputeDto>
         RuleFor(x => x.Text).MaximumLength(1000);
     }
 }
+
+public sealed class ContactValidator : AbstractValidator<ContactDto>
+{
+    public ContactValidator()
+    {
+        RuleFor(x => x.Topic).NotEmpty().MaximumLength(60);
+        RuleFor(x => x.Text).NotEmpty().MinimumLength(10).MaximumLength(2000);
+    }
+}

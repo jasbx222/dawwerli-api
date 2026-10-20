@@ -70,6 +70,24 @@ public sealed class TrustService(Shared s, INotifier notifier, ITextCatalog text
         return Result.Ok();
     }
 
+    public async Task<IReadOnlyList<BlockedDto>> BlockedAsync(CancellationToken ct) =>
+        await Db.Blocks.Where(b => b.BlockerUserId == s.Me.UserId)
+            .Select(b => new
+            {
+                b.BlockedUserId,
+                Page = Db.Pages.Where(p => p.UserId == b.BlockedUserId).Select(p => new { p.Id, p.Name }).FirstOrDefault(),
+                User = Db.Users.Where(u => u.Id == b.BlockedUserId).Select(u => u.Name).FirstOrDefault(),
+            })
+            .Select(x => new BlockedDto(x.BlockedUserId, x.Page == null ? null : x.Page.Id, x.Page != null ? x.Page.Name : x.User ?? ""))
+            .ToListAsync(ct);
+
+    public async Task<Result> UnblockAsync(Guid id, CancellationToken ct)
+    {
+        var userId = await Db.Pages.Where(p => p.Id == id).Select(p => (Guid?)p.UserId).FirstOrDefaultAsync(ct) ?? id;
+        await Db.Blocks.Where(b => b.BlockerUserId == s.Me.UserId && b.BlockedUserId == userId).ExecuteDeleteAsync(ct);
+        return Result.Ok();
+    }
+
     public async Task OpenSystemDisputeAsync(Order order, DisputeType type, string text, CancellationToken ct)
     {
         var rules = await s.Rules(ct);
@@ -120,5 +138,5 @@ public sealed class TrustService(Shared s, INotifier notifier, ITextCatalog text
     public async Task<IReadOnlyList<DisputeViewDto>> MyDisputesAsync(CancellationToken ct) =>
         (await Db.Disputes.Where(x => x.OpenedByUserId == s.Me.UserId).OrderByDescending(x => x.CreatedAt).ToListAsync(ct)).Select(ToDto).ToList();
 
-    public static DisputeViewDto ToDto(Dispute d) => new(d.Id, d.OrderId, d.Type.Code(), d.Status.Code(), d.Text, d.Decision, d.CreatedAt, d.DecideBy);
+    public static DisputeViewDto ToDto(Dispute d) => new(d.Id, d.OrderId, d.SubjectId, d.Type.Code(), d.Status.Code(), d.Text, d.Decision, d.CreatedAt, d.DecideBy);
 }

@@ -12,6 +12,7 @@ public sealed class PageService(Shared s, IPhoneProtector phones)
     private IAppDbContext Db => s.Db;
     private const string BioCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private const int BioCodeLength = 6;
+    private const int ReplySample = 50;
 
     public static string NormalizeHandle(string h) => h.Trim().TrimStart('@').ToLowerInvariant();
 
@@ -173,9 +174,14 @@ public sealed class PageService(Shared s, IPhoneProtector phones)
         var rules = await s.Rules(ct);
         var catIds = p.Categories.Select(c => c.CategoryId).ToList();
         var govIds = p.Governorates.Select(g => g.GovernorateId).ToList();
+        var replies = await Db.Offers.Where(o => o.PageId == p.Id).OrderByDescending(o => o.CreatedAt).Take(ReplySample)
+            .Join(Db.RequestDispatches.Where(d => d.PageId == p.Id), o => o.RequestId, d => d.RequestId, (o, d) => new { o.CreatedAt, d.DispatchedAt })
+            .ToListAsync(ct);
+        var replyMinutes = replies.Count == 0 ? 0 : (int)Math.Round(replies.Average(x => (x.CreatedAt - x.DispatchedAt).TotalMinutes));
         return new PublicPageDto(p.Id, p.Name, s.Url(p.ImageKey), p.Bio, Math.Round(p.Rating, 1), p.RatingCount, p.Deals, p.Deals >= rules.TrustedDeals,
             await Db.Categories.Where(c => catIds.Contains(c.Id)).Select(c => c.Name).ToListAsync(ct),
-            await Db.Governorates.Where(g => govIds.Contains(g.Id)).Select(g => g.Name).ToListAsync(ct));
+            await Db.Governorates.Where(g => govIds.Contains(g.Id)).OrderBy(g => g.SortOrder).Select(g => g.Name).ToListAsync(ct),
+            replyMinutes, p.CreatedAt.Year);
     }
 
     /// <summary>Paid featured pages first («مُموّل»), then organic ranking by deals and rating.</summary>

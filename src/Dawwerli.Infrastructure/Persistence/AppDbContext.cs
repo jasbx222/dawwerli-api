@@ -40,6 +40,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IClock 
     public DbSet<IdempotencyRecord> IdempotencyRecords => Set<IdempotencyRecord>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<SettingsRecord> Settings => Set<SettingsRecord>();
+    public DbSet<SupportMessage> SupportMessages => Set<SupportMessage>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default) =>
         Database.CurrentTransaction is null ? Database.BeginTransactionAsync(ct) : Task.FromResult<IDbContextTransaction>(new NoopTransaction());

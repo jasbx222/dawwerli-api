@@ -3,6 +3,7 @@ namespace Dawwerli.Application.Contracts;
 // ---- auth / account
 public sealed record OtpRequestDto(string Phone, bool SmsNotReceived = false);
 public sealed record OtpSentDto(string Channel, int ExpiresIn, int ResendIn, string? DevCode);
+public sealed record CodeDto(string Code);
 public sealed record OtpVerifyDto(string Phone, string Code, string Role, string? DeviceId);
 public sealed record AuthResultDto(string AccessToken, string RefreshToken, int ExpiresIn, bool NeedsProfile, string Role, string? PageStatus);
 public sealed record SwitchRoleDto(string Role, string? DeviceId);
@@ -52,8 +53,10 @@ public sealed record DeliveryAnswerDto(string Answer);
 // ---- trust
 public sealed record ReportDto(string Target, Guid TargetId, Guid? OrderId, Guid? OfferId, string Reason, string? Text);
 public sealed record BlockDto(Guid? UserId, Guid? PageId);
+public sealed record BlockedDto(Guid UserId, Guid? PageId, string Name);
+public sealed record RegionDto(int GovernorateId, string Area);
 public sealed record CreateDisputeDto(Guid? OrderId, Guid? SubjectId, string Type, string? Text, IReadOnlyList<string>? Photos);
-public sealed record DisputeViewDto(Guid Id, Guid? OrderId, string Type, string Status, string Text, string? Decision, DateTime CreatedAt, DateTime DecideBy);
+public sealed record DisputeViewDto(Guid Id, Guid? OrderId, Guid? SubjectId, string Type, string Status, string Text, string? Decision, DateTime CreatedAt, DateTime DecideBy);
 
 // ---- pages
 public sealed record RegisterPageDto(string Name, string Instagram, IReadOnlyList<int> CategoryIds, IReadOnlyList<int> GovernorateIds, bool AcceptTerms);
@@ -73,7 +76,8 @@ public sealed record WalletDto(long Balance, long Available, int FreeUsed, int F
 public sealed record PageMarkDto(Guid Id, string Title, string Kind, Guid? OrderId, string? OrderNo, DateTime At, bool UnderReview);
 public sealed record PageStandingDto(IReadOnlyList<PageMarkDto> Marks, int MarksForSuspension, DateTime? SuspendedUntil, string Status);
 public sealed record ReceivedRatingDto(string OrderNo, int Stars, IReadOnlyList<string> Tags, string Comment, string Governorate, DateTime At);
-public sealed record PublicPageDto(Guid Id, string Name, string? Image, string? Bio, double Rating, int RatingCount, int Deals, bool Trusted, IReadOnlyList<string> Categories, IReadOnlyList<string> Governorates);
+public sealed record PublicPageDto(Guid Id, string Name, string? Image, string? Bio, double Rating, int RatingCount, int Deals, bool Trusted,
+    IReadOnlyList<string> Categories, IReadOnlyList<string> Governorates, int ReplyMinutes, int MemberSince);
 public sealed record PageSummaryDto(Guid Id, string Name, double Rating, int Deals, string? Image, bool IsAd);
 public sealed record FeaturedPagesDto(string CategoryName, string Governorate, IReadOnlyList<PageSummaryDto> Pages);
 
@@ -96,6 +100,9 @@ public sealed record HomeDto(string? FirstName, string? Area, string Governorate
     IReadOnlyList<FeedItemDto> Feed, IReadOnlyList<DealDto> Deals, AdBannerDto? Ad, IReadOnlyList<PageSummaryDto> FeaturedPages);
 public sealed record NotificationDto(Guid Id, string Title, string Body, string Route, DateTime At, bool Read);
 public sealed record CursorPage<T>(IReadOnlyList<T> Items, string? NextCursor);
+
+public sealed record ContactDto(string Topic, string Text);
+public sealed record SupportMessageDto(Guid Id, Guid UserId, string Topic, string Text, string Status, string? Reply, DateTime At);
 
 // ---- admin
 public sealed record ReasonDto(string Reason);

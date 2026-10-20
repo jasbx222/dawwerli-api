@@ -30,6 +30,24 @@ public sealed class AccountService(Shared s, IPhoneProtector phones, IStorage st
         return Result.Ok();
     }
 
+    public async Task<Result> SaveRegionAsync(RegionDto dto, CancellationToken ct)
+    {
+        if (!await Db.Governorates.AnyAsync(g => g.Id == dto.GovernorateId, ct)) return Error.NotFound("governorate");
+        var u = await Db.Users.FirstAsync(x => x.Id == s.Me.UserId, ct);
+        u.GovernorateId = dto.GovernorateId;
+        u.Area = dto.Area.Trim();
+        await Db.SaveChangesAsync(ct);
+        return Result.Ok();
+    }
+
+    public async Task<Result<IdDto>> ContactAsync(ContactDto dto, CancellationToken ct)
+    {
+        var m = new SupportMessage { UserId = s.Me.UserId, Topic = dto.Topic.Trim(), Text = dto.Text.Trim(), Status = CaseStatus.Open };
+        Db.SupportMessages.Add(m);
+        await Db.SaveChangesAsync(ct);
+        return new IdDto(m.Id);
+    }
+
     public async Task<Result<StandingDto>> StandingAsync(CancellationToken ct)
     {
         var rules = await s.Rules(ct);
@@ -53,6 +71,9 @@ public sealed class AccountService(Shared s, IPhoneProtector phones, IStorage st
     }
 
     /// <summary>Hard-erases personal data; keeps anonymized financial/order rows.</summary>
+    public async Task<string> MyPhoneAsync(CancellationToken ct) =>
+        phones.Decrypt(await Db.Users.Where(u => u.Id == s.Me.UserId).Select(u => u.PhoneEncrypted).FirstAsync(ct));
+
     public async Task<Result> DeleteAsync(CancellationToken ct)
     {
         var id = s.Me.UserId;

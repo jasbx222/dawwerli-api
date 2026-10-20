@@ -37,6 +37,7 @@ public interface IAppDbContext
     DbSet<IdempotencyRecord> IdempotencyRecords { get; }
     DbSet<AuditLog> AuditLogs { get; }
     DbSet<SettingsRecord> Settings { get; }
+    DbSet<SupportMessage> SupportMessages { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     EntityEntry<T> Entry<T>(T entity) where T : class;
     Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default);

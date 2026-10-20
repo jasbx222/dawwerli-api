@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Dawwerli.Api.Controllers;
 
 [Route("api/v1"), Authorize]
-public sealed class AccountController(AccountService account, NotificationService notifications) : AppController
+public sealed class AccountController(AccountService account, AuthService auth, NotificationService notifications) : AppController
 {
     private const int DefaultPageSize = 30;
 
@@ -17,11 +17,27 @@ public sealed class AccountController(AccountService account, NotificationServic
     [HttpPut("me/profile")]
     public async Task<IActionResult> Profile(ProfileDto dto, CancellationToken ct) => From(await account.SaveProfileAsync(dto, ct));
 
+    [HttpPost("contact"), Idempotent]
+    public async Task<IActionResult> Contact(ContactDto dto, CancellationToken ct) => From(await account.ContactAsync(dto, ct));
+
+    [HttpPut("me/region")]
+    public async Task<IActionResult> Region(RegionDto dto, CancellationToken ct) => From(await account.SaveRegionAsync(dto, ct));
+
     [HttpGet("me/standing")]
     public async Task<IActionResult> Standing(CancellationToken ct) => From(await account.StandingAsync(ct));
 
-    [HttpDelete("me")]
-    public async Task<IActionResult> Delete(CancellationToken ct) => From(await account.DeleteAsync(ct));
+    /// <summary>Sends a confirmation code to my phone before deleting the account.</summary>
+    [HttpPost("me/delete-code")]
+    public async Task<IActionResult> DeleteCode(CancellationToken ct) =>
+        From(await auth.RequestOtpAsync(new OtpRequestDto(await account.MyPhoneAsync(ct)), ct));
+
+    /// <summary>Deletes my account; requires the code from <c>POST me/delete-code</c>.</summary>
+    [HttpPost("me/delete")]
+    public async Task<IActionResult> Delete(CodeDto dto, CancellationToken ct)
+    {
+        var check = await auth.ConfirmCodeAsync(await account.MyPhoneAsync(ct), dto.Code, ct);
+        return check.IsSuccess ? From(await account.DeleteAsync(ct)) : From(check);
+    }
 
     [HttpPost("devices")]
     public async Task<IActionResult> Device(DeviceDto dto, CancellationToken ct) => From(await account.RegisterDeviceAsync(dto, ct));

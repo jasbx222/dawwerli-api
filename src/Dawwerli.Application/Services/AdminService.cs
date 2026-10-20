@@ -227,6 +227,22 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
         return Result.Ok();
     }
 
+    public async Task<IReadOnlyList<SupportMessageDto>> MessagesAsync(CancellationToken ct) =>
+        await Db.SupportMessages.Where(m => m.Status == CaseStatus.Open).OrderBy(m => m.CreatedAt)
+            .Select(m => new SupportMessageDto(m.Id, m.UserId, m.Topic, m.Text, m.Status.ToString(), m.Reply, m.CreatedAt)).ToListAsync(ct);
+
+    public async Task<Result> ReplyAsync(Guid id, ReasonDto dto, CancellationToken ct)
+    {
+        var m = await Db.SupportMessages.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (m is null) return Error.NotFound("message");
+        m.Reply = dto.Reason;
+        m.Status = CaseStatus.Accepted;
+        s.Audit("contact.reply", nameof(SupportMessage), id);
+        await Db.SaveChangesAsync(ct);
+        await notifier.NotifyAsync(m.UserId, texts.Get("contact.replied"), dto.Reason, "/notifications", ct);
+        return Result.Ok();
+    }
+
     public Task<BusinessRules> SettingsAsync(CancellationToken ct) => rulesProvider.GetAsync(ct);
 
     public async Task<Result> SaveSettingsAsync(BusinessRules rules, CancellationToken ct)

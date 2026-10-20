@@ -38,5 +38,7 @@ public sealed class AdminController(AdminService admin) : AppController
     [HttpGet("keywords")] public async Task<IActionResult> Keywords(CancellationToken ct) => Ok(await admin.KeywordsAsync(ct));
     [HttpPost("keywords")] public async Task<IActionResult> AddKeyword(KeywordDto dto, CancellationToken ct) => From(await admin.AddKeywordAsync(dto, ct));
     [HttpDelete("keywords/{id:int}")] public async Task<IActionResult> RemoveKeyword(int id, CancellationToken ct) => From(await admin.RemoveKeywordAsync(id, ct));
+    [HttpGet("contact")] public async Task<IActionResult> Messages(CancellationToken ct) => Ok(await admin.MessagesAsync(ct));
+    [HttpPost("contact/{id:guid}/reply")] public async Task<IActionResult> Reply(Guid id, ReasonDto dto, CancellationToken ct) => From(await admin.ReplyAsync(id, dto, ct));
     [HttpGet("audit")] public async Task<IActionResult> Audit(CancellationToken ct) => Ok(await admin.AuditAsync(AuditTake, ct));
 }

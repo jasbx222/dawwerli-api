@@ -11,6 +11,17 @@ public sealed class HomeService(Shared s, AdsService ads, RequestService request
     private IAppDbContext Db => s.Db;
     private static readonly OrderStatus[] Completed = [OrderStatus.Delivered, OrderStatus.Rated];
 
+    /// <summary>Anonymized activity: category + governorate + offers count, delayed by FeedDelayMin.</summary>
+    public async Task<IReadOnlyList<FeedItemDto>> FeedAsync(int? governorateId, int take, CancellationToken ct)
+    {
+        var rules = await s.Rules(ct);
+        var before = s.Now.AddMinutes(-rules.FeedDelayMin);
+        var q = Db.Requests.Include(r => r.Category).Include(r => r.Governorate).Where(r => r.CreatedAt <= before && r.OffersCount > 0);
+        if (governorateId is { } g) q = q.Where(r => r.GovernorateId == g);
+        return (await q.OrderByDescending(r => r.CreatedAt).Take(take).ToListAsync(ct))
+            .Select(r => new FeedItemDto(r.Category!.Name, r.Governorate!.Name, r.OffersCount, s.Url(r.Category.ImageKey))).ToList();
+    }
+
     public async Task<HomeDto> LoadAsync(int? governorateId, CancellationToken ct)
     {
         var rules = await s.Rules(ct);

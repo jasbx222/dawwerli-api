@@ -36,3 +36,12 @@ public class SettingsRecord
     public string Data { get; set; } = "{}";
     public DateTime UpdatedAt { get; set; }
 }
+
+public class SupportMessage : Entity
+{
+    public Guid UserId { get; set; }
+    public string Topic { get; set; } = "";
+    public string Text { get; set; } = "";
+    public CaseStatus Status { get; set; }
+    public string? Reply { get; set; }
+}

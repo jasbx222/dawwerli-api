@@ -1418,6 +1418,49 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.ToTable("strikes", (string)null);
                 });
 
+            modelBuilder.Entity("Dawwerli.Domain.Entities.SupportMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Reply")
+                        .HasColumnType("text")
+                        .HasColumnName("reply");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("text");
+
+                    b.Property<string>("Topic")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("topic");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_support_messages");
+
+                    b.ToTable("support_messages", (string)null);
+                });
+
             modelBuilder.Entity("Dawwerli.Domain.Entities.TopUp", b =>
                 {
                     b.Property<Guid>("Id")

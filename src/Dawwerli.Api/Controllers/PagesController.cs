@@ -85,9 +85,13 @@ public sealed class PagesController(PageService pages, OfferService offers, Orde
 public sealed class DiscoverController(HomeService home, PageService pages, AdsService ads) : AppController
 {
     private const int FeaturedTake = 20;
+    private const int FeedTake = 50;
 
     [HttpGet("home")]
     public async Task<IActionResult> Home([FromQuery] int? governorateId, CancellationToken ct) => Ok(await home.LoadAsync(governorateId, ct));
+
+    [HttpGet("home/feed")]
+    public async Task<IActionResult> Feed([FromQuery] int? governorateId, CancellationToken ct) => Ok(await home.FeedAsync(governorateId, FeedTake, ct));
 
     [HttpGet("pages/{id:guid}")]
     public async Task<IActionResult> Page(Guid id, CancellationToken ct) => From(await pages.PublicAsync(id, ct));

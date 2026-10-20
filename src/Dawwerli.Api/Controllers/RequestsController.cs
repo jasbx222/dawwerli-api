@@ -70,6 +70,13 @@ public sealed class TrustController(TrustService trust) : AppController
     [HttpPost("blocks")]
     public async Task<IActionResult> Block(BlockDto dto, CancellationToken ct) => From(await trust.BlockAsync(dto, ct));
 
+    [HttpGet("blocks")]
+    public async Task<IActionResult> Blocked(CancellationToken ct) => Ok(await trust.BlockedAsync(ct));
+
+    /// <summary>Unblock by page id or user id.</summary>
+    [HttpDelete("blocks/{id:guid}")]
+    public async Task<IActionResult> Unblock(Guid id, CancellationToken ct) => From(await trust.UnblockAsync(id, ct));
+
     [HttpPost("disputes"), Idempotent]
     public async Task<IActionResult> Dispute(CreateDisputeDto dto, CancellationToken ct) => From(await trust.CreateDisputeAsync(dto, ct));
 
