@@ -115,7 +115,7 @@ public sealed record UpsertCategoryDto(string Slug, string Name, string? Emoji, 
 public sealed record KeywordDto(string Word);
 public sealed record KpiDto(int RequestsToday, int Requests7d, int Requests30d, double PctWithOffer, double? MedianFirstOfferMin, double SelectionRate,
     double ReceiptRate, double ComplaintRate, long Revenue, long AdsRevenue, int ActivePages, int PendingPages, int PendingTopUps, int OpenDisputes);
-public sealed record AdminPageDto(Guid Id, string Name, string Instagram, string Status, string BioCode, double Rating, int Deals, long Balance, DateTime CreatedAt, string? Phone);
+public sealed record AdminPageDto(Guid Id, string Name, string Instagram, string Status, string BioCode, double Rating, int Deals, long Balance, DateTime CreatedAt, string? Phone, DateTime? SuspendedUntil);
 public sealed record AuditDto(Guid Id, Guid ActorUserId, string Action, string Entity, string EntityId, string Data, DateTime At);
 
 public sealed record AdminTopUpDto(Guid Id, Guid PageId, string PageName, string Method, string Ref, long Amount, string? ReceiptUrl, DateTime At, string Status);

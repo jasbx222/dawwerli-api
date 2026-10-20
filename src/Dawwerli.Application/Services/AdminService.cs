@@ -19,10 +19,14 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
     public async Task<IReadOnlyList<AdminPageDto>> PagesAsync(string? status, CancellationToken ct)
     {
         var q = Db.Pages.Include(p => p.User).AsQueryable();
-        if (EnumText.TryParse<PageStatus>(status, out var st)) q = q.Where(p => p.Status == st);
-        return (await q.OrderBy(p => p.CreatedAt).Take(200).ToListAsync(ct)).Select(p => new AdminPageDto(p.Id, p.Name, p.InstagramHandle,
+        var now = s.Now;
+        if (EnumText.TryParse<PageStatus>(status, out var st))
+            q = st == PageStatus.Suspended ? q.Where(p => p.Status == st || p.SuspendedUntil > now)
+              : st == PageStatus.Verified ? q.Where(p => p.Status == st && (p.SuspendedUntil == null || p.SuspendedUntil <= now)) : q.Where(p => p.Status == st);
+        q = st == PageStatus.Pending ? q.OrderBy(p => p.CreatedAt) : q.OrderByDescending(p => p.CreatedAt);
+        return (await q.Take(200).ToListAsync(ct)).Select(p => new AdminPageDto(p.Id, p.Name, p.InstagramHandle,
             p.Status.Code(), p.BioCode, p.Rating, p.Deals, p.Balance, p.CreatedAt,
-            p.User!.PhoneEncrypted == "" ? null : phones.Decrypt(p.User.PhoneEncrypted))).ToList();
+            p.User!.PhoneEncrypted == "" ? null : phones.Decrypt(p.User.PhoneEncrypted), p.SuspendedUntil > now ? p.SuspendedUntil : null)).ToList();
     }
 
     private async Task<Result<Page>> PageAsync(Guid id, CancellationToken ct) =>

@@ -120,9 +120,13 @@ public class AdminRolesAndTotpTests(ApiFactory factory)
         var super = await Api.AdminAsync(c, factory);
         await Api.VerifiedPageAsync(c, super, 1);
         var pages = await (await c.SendAsync(Req("GET", "/api/admin/v1/pages?status=verified", super))).ReadAsync();
-        var id = pages.EnumerateArray().Last().GetProperty("id").GetString();
+        var id = pages.EnumerateArray().First().GetProperty("id").GetString();
         Assert.Equal(HttpStatusCode.Conflict, (await c.SendAsync(Req("POST", $"/api/admin/v1/pages/{id}/unsuspend", super, new { reason = "x" }))).StatusCode);
         (await c.SendAsync(Req("POST", $"/api/admin/v1/pages/{id}/suspend", super, new { days = 3, reason = "test" }))).EnsureSuccessStatusCode();
+        var suspended = await (await c.SendAsync(Req("GET", "/api/admin/v1/pages?status=suspended", super))).ReadAsync();
+        Assert.Contains(suspended.EnumerateArray(), p => p.GetProperty("id").GetString() == id && p.GetProperty("suspendedUntil").ValueKind == JsonValueKind.String);
         Assert.Equal(HttpStatusCode.NoContent, (await c.SendAsync(Req("POST", $"/api/admin/v1/pages/{id}/unsuspend", super, new { reason = "appeal accepted" }))).StatusCode);
+        var verified = await (await c.SendAsync(Req("GET", "/api/admin/v1/pages?status=verified", super))).ReadAsync();
+        Assert.Contains(verified.EnumerateArray(), p => p.GetProperty("id").GetString() == id);
     }
 }
