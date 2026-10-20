@@ -27,3 +27,42 @@ public sealed class UserAuthOptions
     public int MaxFailedLogins { get; set; } = 5;
     public int LockMinutes { get; set; } = 15;
 }
+
+/// <summary>Store limits and paging (appsettings.Store.json, "Store").</summary>
+public sealed class StoreOptions
+{
+    public const string Section = "Store";
+    public const string ProductImageFolder = "products";
+    public int DefaultMaxProductsPerPage { get; set; }
+    public int MaxImagesPerProduct { get; set; }
+    public int NameMaxLength { get; set; }
+    public int DescriptionMaxLength { get; set; }
+    public long MaxPrice { get; set; }
+    public int MaxStock { get; set; }
+    public int MaxCartQuantity { get; set; }
+    public int AddressMaxLength { get; set; }
+    public int NoteMaxLength { get; set; }
+    public int DefaultPageSize { get; set; }
+    public int MaxPageSize { get; set; }
+    public int TopProductsCount { get; set; }
+}
+
+/// <summary>Web seller portal sign-in ("SellerPortal").</summary>
+public sealed class SellerPortalOptions
+{
+    public const string Section = "SellerPortal";
+    public int AccessMinutes { get; set; }
+    public int MinPasswordLength { get; set; }
+    public int MaxFailedLogins { get; set; }
+    public int LockMinutes { get; set; }
+}
+
+/// <summary>Electronic payment gateway ("Payments"). Empty Provider = electronic payment off.</summary>
+public sealed class PaymentOptions
+{
+    public const string Section = "Payments";
+    public string Provider { get; set; } = "";
+    public string ApiKey { get; set; } = "";
+    public string BaseUrl { get; set; } = "";
+    public string ReturnUrl { get; set; } = "";
+}

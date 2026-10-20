@@ -258,6 +258,11 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
                     o.Status = OrderStatus.Closed;
                 }
             }
+            else if (r.Target == ReportTarget.Product)
+            {
+                // Valid product report: hide it from customers (admin can unhide later).
+                if (await Db.Products.FirstOrDefaultAsync(p => p.Id == r.TargetId, ct) is { } product) product.HiddenByAdmin = true;
+            }
             else if (await Db.Pages.FirstOrDefaultAsync(p => p.Id == r.TargetId, ct) is { } page)
                 await trust.AddPageMarkAsync(page, PageMarkKind.Complaint, r.OrderId, dto.Decision, rules, ct);
         }

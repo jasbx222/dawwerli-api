@@ -43,6 +43,12 @@ public static class DependencyInjection
         services.AddSingleton<IPushSender, LogPushSender>();
         services.AddScoped<IRulesProvider, RulesProvider>();
         services.AddScoped<INotifier, Notifier>();
+        services.Configure<StoreOptions>(config.GetSection(StoreOptions.Section));
+        services.Configure<SellerPortalOptions>(config.GetSection(SellerPortalOptions.Section));
+        services.Configure<PaymentOptions>(config.GetSection(PaymentOptions.Section));
+        services.AddSingleton<ISellerTokenService, SellerTokenService>();
+        // Swap in a real gateway here once Payments:Provider has credentials.
+        services.AddSingleton<IPaymentProvider, UnconfiguredPaymentProvider>();
         services.AddScoped<ScenarioSeeder>();
         services.AddScoped<Seeder>();
 

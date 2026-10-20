@@ -24,6 +24,10 @@ public static class DependencyInjection
         services.AddScoped<NotificationService>();
         services.AddScoped<AdminService>();
         services.AddScoped<LifecycleService>();
+        services.AddScoped<StoreKit>();
+        services.AddScoped<StoreService>();
+        services.AddScoped<SellerPortalService>();
+        services.AddScoped<AdminStoreService>();
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
         return services;
     }

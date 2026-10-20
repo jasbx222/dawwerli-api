@@ -122,3 +122,51 @@ public sealed class ContactValidator : AbstractValidator<ContactDto>
         RuleFor(x => x.Text).NotEmpty().MinimumLength(10).MaximumLength(2000);
     }
 }
+
+public sealed class UpsertProductValidator : AbstractValidator<UpsertProductDto>
+{
+    public UpsertProductValidator(Microsoft.Extensions.Options.IOptions<Dawwerli.Application.Abstractions.StoreOptions> options)
+    {
+        var o = options.Value;
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(o.NameMaxLength);
+        RuleFor(x => x.Description).MaximumLength(o.DescriptionMaxLength);
+        RuleFor(x => x.Price).GreaterThan(0).LessThanOrEqualTo(o.MaxPrice);
+        RuleFor(x => x.Stock).InclusiveBetween(0, o.MaxStock);
+        RuleFor(x => x.CategoryId).GreaterThan(0);
+        RuleFor(x => x.ImageKeys).NotNull();
+    }
+}
+
+public sealed class CheckoutValidator : AbstractValidator<CheckoutDto>
+{
+    public CheckoutValidator(Microsoft.Extensions.Options.IOptions<Dawwerli.Application.Abstractions.StoreOptions> options)
+    {
+        var o = options.Value;
+        RuleFor(x => x.Address).NotEmpty().MaximumLength(o.AddressMaxLength);
+        RuleFor(x => x.Note).MaximumLength(o.NoteMaxLength);
+        RuleFor(x => x.PaymentMethod).NotEmpty();
+    }
+}
+
+public sealed class AddCartItemValidator : AbstractValidator<AddCartItemDto>
+{
+    public AddCartItemValidator() => RuleFor(x => x.Quantity).GreaterThan(0);
+}
+
+public sealed class SellerLoginValidator : AbstractValidator<SellerLoginDto>
+{
+    public SellerLoginValidator()
+    {
+        RuleFor(x => x.Email).NotEmpty().EmailAddress();
+        RuleFor(x => x.Password).NotEmpty();
+    }
+}
+
+public sealed class CreateSellerAccountValidator : AbstractValidator<CreateSellerAccountDto>
+{
+    public CreateSellerAccountValidator()
+    {
+        RuleFor(x => x.Email).NotEmpty().EmailAddress().MaximumLength(254);
+        RuleFor(x => x.PageId).NotEmpty();
+    }
+}
