@@ -20,6 +20,7 @@ public static class DependencyInjection
         services.Configure<JobsOptions>(config.GetSection(JobsOptions.Section));
         services.Configure<RegionOptions>(config.GetSection(RegionOptions.Section));
         services.Configure<OtpOptions>(config.GetSection(OtpOptions.Section));
+        services.Configure<UserAuthOptions>(config.GetSection(UserAuthOptions.Section));
 
         services.AddDbContext<AppDbContext>(o => o.UseNpgsql(config.GetConnectionString("Default")).UseSnakeCaseNamingConvention());
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());

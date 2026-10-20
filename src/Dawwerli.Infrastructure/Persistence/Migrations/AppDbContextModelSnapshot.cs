@@ -1553,6 +1553,10 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("email");
 
+                    b.Property<int>("FailedLogins")
+                        .HasColumnType("integer")
+                        .HasColumnName("failed_logins");
+
                     b.Property<int?>("GovernorateId")
                         .HasColumnType("integer")
                         .HasColumnName("governorate_id");
@@ -1560,6 +1564,10 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsBanned")
                         .HasColumnType("boolean")
                         .HasColumnName("is_banned");
+
+                    b.Property<DateTime?>("LoginLockedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("login_locked_until");
 
                     b.Property<string>("Name")
                         .HasMaxLength(60)

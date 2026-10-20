@@ -10,7 +10,8 @@ using Microsoft.Extensions.Options;
 namespace Dawwerli.Application.Services;
 
 public sealed class AuthService(ITotpService totp, IOptions<AdminAuthOptions> adminAuth, IAppDbContext db, IClock clock, IRulesProvider rulesProvider, IPhoneProtector phones,
-    ISmsSender sms, ITokenService tokens, IPasswordHasher passwords, IOptions<OtpOptions> otpOptions)
+    ISmsSender sms, ITokenService tokens, IPasswordHasher passwords, IOptions<OtpOptions> otpOptions,
+    IOptions<UserAuthOptions> userAuth)
 {
     public async Task<Result<OtpSentDto>> RequestOtpAsync(OtpRequestDto dto, CancellationToken ct)
     {
@@ -65,11 +66,95 @@ public sealed class AuthService(ITotpService totp, IOptions<AdminAuthOptions> ad
             db.Users.Add(user);
         }
         user.Role = role;
-        var page = await db.Pages.FirstOrDefaultAsync(p => p.UserId == user.Id, ct);
-        var issued = await IssueAsync(user, page?.Id, Guid.NewGuid(), dto.DeviceId, ct);
-        return new AuthResultDto(issued.AccessToken, issued.RefreshToken, issued.ExpiresIn,
-            role == UserRole.Customer ? user.NeedsProfile : page is null, role.Code(), page?.Status.Code());
+        return await SessionAsync(user, role, dto.DeviceId, ct);
     }
+
+    /// <summary>Phone + password sign-in. Same response as OTP verify; one generic error for unknown phone or wrong password.</summary>
+    public async Task<Result<AuthResultDto>> PasswordLoginAsync(PasswordLoginDto dto, CancellationToken ct)
+    {
+        if (!EnumText.TryParse<UserRole>(dto.Role, out var role) || role == UserRole.Admin) return Errors.BadEnum("role");
+        var now = clock.UtcNow;
+        var hash = phones.Hash(dto.Phone);
+        var user = await db.Users.FirstOrDefaultAsync(u => u.PhoneHash == hash && u.Role != UserRole.Admin && u.DeletedAt == null, ct);
+        if (user?.LoginLockedUntil > now) return LoginLocked(user.LoginLockedUntil.Value, now);
+        if (user?.PasswordHash is null || !passwords.Verify(dto.Password ?? "", user.PasswordHash))
+        {
+            if (user?.PasswordHash is not null)
+            {
+                var opt = userAuth.Value;
+                if (++user.FailedLogins >= opt.MaxFailedLogins)
+                {
+                    user.FailedLogins = 0;
+                    user.LoginLockedUntil = now.AddMinutes(opt.LockMinutes);
+                }
+                await db.SaveChangesAsync(ct);
+                if (user.LoginLockedUntil > now) return LoginLocked(user.LoginLockedUntil.Value, now);
+            }
+            return Error.Unauthorized("auth.credentials", "Wrong phone number or password");
+        }
+        if (user.IsBanned) return Error.Forbidden("account.banned", "Account is banned");
+        user.FailedLogins = 0;
+        user.LoginLockedUntil = null;
+        user.Role = role;
+        return await SessionAsync(user, role, dto.DeviceId, ct);
+    }
+
+    /// <summary>Sets (or changes) the signed-in user's password, e.g. right after OTP sign-up.</summary>
+    public async Task<Result> SetPasswordAsync(Guid userId, SetPasswordDto dto, CancellationToken ct)
+    {
+        if (ValidatePassword(dto.Password) is { } bad) return bad;
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.DeletedAt == null && u.Role != UserRole.Admin, ct);
+        if (user is null || user.IsBanned) return Error.Unauthorized("auth.user", "User unavailable");
+        user.PasswordHash = passwords.Hash(dto.Password);
+        user.FailedLogins = 0;
+        user.LoginLockedUntil = null;
+        await db.SaveChangesAsync(ct);
+        return Result.Ok();
+    }
+
+    /// <summary>Forgot password: the code from otp/request proves phone ownership; sets the new password and signs in.</summary>
+    public async Task<Result<AuthResultDto>> ResetPasswordAsync(PasswordResetDto dto, CancellationToken ct)
+    {
+        if (!EnumText.TryParse<UserRole>(dto.Role, out var role) || role == UserRole.Admin) return Errors.BadEnum("role");
+        if (ValidatePassword(dto.Password) is { } bad) return bad;
+        var rules = await rulesProvider.GetAsync(ct);
+        var now = clock.UtcNow;
+        var hash = phones.Hash(dto.Phone);
+        var ch = await db.OtpChallenges.Where(c => c.PhoneHash == hash && !c.Consumed)
+            .OrderByDescending(c => c.CreatedAt).FirstOrDefaultAsync(ct);
+        var check = await CheckCodeAsync(ch, hash, dto.Code, rules, now, ct);
+        if (!check.IsSuccess) return check.Error!;
+        ch!.Consumed = true;
+        var user = await db.Users.FirstOrDefaultAsync(u => u.PhoneHash == hash && u.Role != UserRole.Admin && u.DeletedAt == null, ct);
+        if (user is null) { await db.SaveChangesAsync(ct); return Error.Unauthorized("auth.credentials", "Wrong phone number or password"); }
+        if (user.IsBanned) return Error.Forbidden("account.banned", "Account is banned");
+        user.PasswordHash = passwords.Hash(dto.Password);
+        user.FailedLogins = 0;
+        user.LoginLockedUntil = null;
+        user.Role = role;
+        return await SessionAsync(user, role, dto.DeviceId, ct);
+    }
+
+    private Error? ValidatePassword(string? password)
+    {
+        var opt = userAuth.Value;
+        if (string.IsNullOrEmpty(password) || password.Length < opt.MinPasswordLength)
+            return new Error(ErrorKind.Validation, "password.too_short", "Password is too short",
+                new Dictionary<string, object?> { ["minLength"] = opt.MinPasswordLength });
+        if (password.Length > opt.MaxPasswordLength) return Error.Validation("password.too_long", "Password is too long");
+        return null;
+    }
+
+    private async Task<Result<AuthResultDto>> SessionAsync(User user, UserRole role, string? deviceId, CancellationToken ct)
+    {
+        var page = await db.Pages.FirstOrDefaultAsync(p => p.UserId == user.Id, ct);
+        var issued = await IssueAsync(user, page?.Id, Guid.NewGuid(), deviceId, ct);
+        return new AuthResultDto(issued.AccessToken, issued.RefreshToken, issued.ExpiresIn,
+            role == UserRole.Customer ? user.NeedsProfile : page is null, role.Code(), page?.Status.Code(), user.PasswordHash is not null);
+    }
+
+    private static Error LoginLocked(DateTime until, DateTime now) =>
+        Error.Limited("auth.locked", "Too many wrong passwords", (int)Math.Ceiling((until - now).TotalSeconds));
 
     /// <summary>Checks a code sent to <paramref name="phone"/> (e.g. to confirm account deletion) and consumes it.</summary>
     public async Task<Result> ConfirmCodeAsync(string phone, string code, CancellationToken ct)
@@ -123,7 +208,7 @@ public sealed class AuthService(ITotpService totp, IOptions<AdminAuthOptions> ad
         if (user is null || user.IsBanned) return Error.Unauthorized("auth.user", "User unavailable");
         var page = await db.Pages.FirstOrDefaultAsync(p => p.UserId == user.Id, ct);
         var issued = await IssueAsync(user, page?.Id, rt.FamilyId, dto.DeviceId ?? rt.DeviceId, ct);
-        return new AuthResultDto(issued.AccessToken, issued.RefreshToken, issued.ExpiresIn, user.NeedsProfile, user.Role.Code(), page?.Status.Code());
+        return new AuthResultDto(issued.AccessToken, issued.RefreshToken, issued.ExpiresIn, user.NeedsProfile, user.Role.Code(), page?.Status.Code(), user.PasswordHash is not null);
     }
 
     /// <summary>Buyer ⇄ seller switch for the same phone account; issues tokens with the new role.</summary>
@@ -133,10 +218,7 @@ public sealed class AuthService(ITotpService totp, IOptions<AdminAuthOptions> ad
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.DeletedAt == null, ct);
         if (user is null || user.IsBanned) return Error.Unauthorized("auth.user", "User unavailable");
         user.Role = role;
-        var page = await db.Pages.FirstOrDefaultAsync(p => p.UserId == user.Id, ct);
-        var issued = await IssueAsync(user, page?.Id, Guid.NewGuid(), deviceId, ct);
-        return new AuthResultDto(issued.AccessToken, issued.RefreshToken, issued.ExpiresIn,
-            role == UserRole.Customer ? user.NeedsProfile : page is null, role.Code(), page?.Status.Code());
+        return await SessionAsync(user, role, deviceId, ct);
     }
 
     public async Task<Result> LogoutAsync(RefreshDto dto, CancellationToken ct)

@@ -18,6 +18,15 @@ public sealed class AuthController(AuthService auth, ICurrentUser me) : AppContr
     [HttpPost("otp/verify")]
     public async Task<IActionResult> Verify(OtpVerifyDto dto, CancellationToken ct) => From(await auth.VerifyOtpAsync(dto, ct));
 
+    [HttpPost("login")]
+    public async Task<IActionResult> Login(PasswordLoginDto dto, CancellationToken ct) => From(await auth.PasswordLoginAsync(dto, ct));
+
+    [Authorize, HttpPost("password")]
+    public async Task<IActionResult> SetPassword(SetPasswordDto dto, CancellationToken ct) => From(await auth.SetPasswordAsync(me.UserId, dto, ct));
+
+    [HttpPost("password/reset")]
+    public async Task<IActionResult> ResetPassword(PasswordResetDto dto, CancellationToken ct) => From(await auth.ResetPasswordAsync(dto, ct));
+
     [HttpPost("refresh")]
     public async Task<IActionResult> Refresh(RefreshDto dto, CancellationToken ct) => From(await auth.RefreshAsync(dto, ct));
 

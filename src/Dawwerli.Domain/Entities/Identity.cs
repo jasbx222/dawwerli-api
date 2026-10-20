@@ -13,6 +13,9 @@ public class User : Entity
     public string? Area { get; set; }
     public string? Email { get; set; }
     public string? PasswordHash { get; set; }
+    /// <summary>Consecutive wrong phone+password logins; reset on success.</summary>
+    public int FailedLogins { get; set; }
+    public DateTime? LoginLockedUntil { get; set; }
     public AdminRole AdminRole { get; set; }
     /// <summary>TOTP secret, encrypted at rest. Set at enrollment start; active once TotpEnabled.</summary>
     public string? TotpSecret { get; set; }
