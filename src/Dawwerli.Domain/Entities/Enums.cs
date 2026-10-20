@@ -17,7 +17,10 @@ public enum AdSlot { HomeBanner, FeaturedPage, SponsoredOffer }
 public enum AdOwnerType { Page, Brand, Platform }
 public enum AdStatus { Pending, Rejected, PausedBalance, PausedSuspended, Active, Ended }
 public enum AdEventType { Impression, Click }
-public enum ReportTarget { Page, Customer }
+public enum ReportTarget { Page, Customer, Product }
+public enum StoreOrderStatus { New, Accepted, OutForDelivery, Delivered, Cancelled, Rejected }
+public enum PaymentMethod { Cash, Electronic }
+public enum PaymentStatus { CashOnDelivery, Pending, Paid, Failed }
 public enum ReportReason { PriceChanged, NoReply, Abuse, ContactSolicitation, OffAppPayment, DepositRequest, BannedItem, Fake, Other, NotDelivered, Mismatch }
 public enum CaseStatus { Open, UnderReview, Accepted, Rejected }
 public enum DisputeType { NoReply, NotDelivered, FakeReport, StrikeAppeal }

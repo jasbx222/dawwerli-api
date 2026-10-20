@@ -38,6 +38,11 @@ public interface IAppDbContext
     DbSet<AuditLog> AuditLogs { get; }
     DbSet<SettingsRecord> Settings { get; }
     DbSet<SupportMessage> SupportMessages { get; }
+    DbSet<Product> Products { get; }
+    DbSet<CartItem> CartItems { get; }
+    DbSet<StoreOrder> StoreOrders { get; }
+    DbSet<StoreOrderItem> StoreOrderItems { get; }
+    DbSet<SellerAccount> SellerAccounts { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     EntityEntry<T> Entry<T>(T entity) where T : class;
     Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default);
@@ -146,4 +151,27 @@ public interface ITextCatalog
 {
     /// <summary>Localized notification/step text by key (from configuration).</summary>
     string Get(string key, params object[] args);
+}
+
+public sealed record PaymentSession(string Reference, string CheckoutUrl);
+
+/// <summary>Electronic payment gateway. <see cref="IsConfigured"/> false = only cash on delivery.</summary>
+public interface IPaymentProvider
+{
+    bool IsConfigured { get; }
+    Task<PaymentSession> StartAsync(StoreOrder order, long amount, CancellationToken ct = default);
+}
+
+/// <summary>Short-lived JWT for the web seller portal (role SellerPortal, scope seller_portal, page id).</summary>
+public interface ISellerTokenService
+{
+    string Create(SellerAccount account);
+    int AccessTokenSeconds { get; }
+}
+
+/// <summary>The signed-in web seller (SellerPortal token).</summary>
+public interface ICurrentSeller
+{
+    Guid AccountId { get; }
+    Guid PageId { get; }
 }

@@ -25,6 +25,8 @@ public class Page : Entity
     public int WorkTo { get; set; }
     public int[] WorkDays { get; set; } = [];
     public DateTime? EarlyAccessUntil { get; set; }
+    /// <summary>Admin override of <see cref="Rules.BusinessRules.MaxProductsPerPage"/>; null = global.</summary>
+    public int? MaxProducts { get; set; }
     public List<PageCategory> Categories { get; set; } = [];
     public List<PageGovernorate> Governorates { get; set; } = [];
 

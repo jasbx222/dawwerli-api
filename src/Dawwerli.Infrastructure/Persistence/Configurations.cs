@@ -205,3 +205,42 @@ internal sealed class AuditConfig : IEntityTypeConfiguration<AuditLog>
         b.HasIndex(x => x.CreatedAt);
     }
 }
+
+internal sealed class ProductConfig : IEntityTypeConfiguration<Product>
+{
+    public void Configure(EntityTypeBuilder<Product> b)
+    {
+        b.HasIndex(x => new { x.PageId, x.CreatedAt });
+        b.Property(x => x.Name).HasMaxLength(120);
+        b.Property(x => x.Description).HasMaxLength(4000);
+        b.Property(x => x.Version).IsRowVersion();
+        b.ToTable(t => t.HasCheckConstraint("ck_products_stock", "stock >= 0"));
+    }
+}
+
+internal sealed class CartItemConfig : IEntityTypeConfiguration<CartItem>
+{
+    public void Configure(EntityTypeBuilder<CartItem> b) => b.HasIndex(x => new { x.UserId, x.ProductId }).IsUnique();
+}
+
+internal sealed class StoreOrderConfig : IEntityTypeConfiguration<StoreOrder>
+{
+    public void Configure(EntityTypeBuilder<StoreOrder> b)
+    {
+        b.HasIndex(x => x.Number).IsUnique();
+        b.HasIndex(x => new { x.PageId, x.Status, x.CreatedAt });
+        b.HasIndex(x => new { x.CustomerUserId, x.CreatedAt });
+        b.Property(x => x.Address).HasMaxLength(500);
+        b.HasMany(x => x.Items).WithOne().HasForeignKey(i => i.OrderId);
+    }
+}
+
+internal sealed class SellerAccountConfig : IEntityTypeConfiguration<SellerAccount>
+{
+    public void Configure(EntityTypeBuilder<SellerAccount> b)
+    {
+        b.HasIndex(x => x.Email).IsUnique();
+        b.HasIndex(x => x.PageId);
+        b.Property(x => x.Email).HasMaxLength(254);
+    }
+}

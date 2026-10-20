@@ -51,6 +51,10 @@ public sealed class BusinessRules
     public int StatsMinGovernorates { get; set; }
     public int StatsMinSamples { get; set; }
     public int HomeListSize { get; set; }
+    /// <summary>Products a page may list; 0 = use Store:DefaultMaxProductsPerPage.</summary>
+    public int MaxProductsPerPage { get; set; }
+    /// <summary>Optional platform commission on store orders (0 = none).</summary>
+    public double StoreCommissionPercent { get; set; }
     public string MinAppVersion { get; set; } = "";
     public string[] TopUpMethods { get; set; } = [];
     public string[] RatingTags { get; set; } = [];

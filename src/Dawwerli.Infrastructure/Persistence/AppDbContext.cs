@@ -41,6 +41,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IClock 
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<SettingsRecord> Settings => Set<SettingsRecord>();
     public DbSet<SupportMessage> SupportMessages => Set<SupportMessage>();
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<CartItem> CartItems => Set<CartItem>();
+    public DbSet<StoreOrder> StoreOrders => Set<StoreOrder>();
+    public DbSet<StoreOrderItem> StoreOrderItems => Set<StoreOrderItem>();
+    public DbSet<SellerAccount> SellerAccounts => Set<SellerAccount>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default) =>
         Database.CurrentTransaction is null ? Database.BeginTransactionAsync(ct) : Task.FromResult<IDbContextTransaction>(new NoopTransaction());

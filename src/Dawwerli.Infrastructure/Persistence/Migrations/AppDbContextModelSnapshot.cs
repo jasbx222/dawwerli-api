@@ -276,6 +276,50 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.ToTable("blocks", (string)null);
                 });
 
+            modelBuilder.Entity("Dawwerli.Domain.Entities.CartItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("PageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("page_id");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_cart_items");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_cart_items_product_id");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_cart_items_user_id_product_id");
+
+                    b.ToTable("cart_items", (string)null);
+                });
+
             modelBuilder.Entity("Dawwerli.Domain.Entities.Category", b =>
                 {
                     b.Property<int>("Id")
@@ -887,6 +931,10 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("instagram_handle");
 
+                    b.Property<int?>("MaxProducts")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_products");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("text")
@@ -1039,6 +1087,84 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_page_marks_page_id_created_at");
 
                     b.ToTable("page_marks", (string)null);
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.Product", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("boolean")
+                        .HasColumnName("active");
+
+                    b.Property<int>("CategoryId")
+                        .HasColumnType("integer")
+                        .HasColumnName("category_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("HiddenByAdmin")
+                        .HasColumnType("boolean")
+                        .HasColumnName("hidden_by_admin");
+
+                    b.Property<string[]>("ImageKeys")
+                        .IsRequired()
+                        .HasColumnType("text[]")
+                        .HasColumnName("image_keys");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("PageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("page_id");
+
+                    b.Property<long>("Price")
+                        .HasColumnType("bigint")
+                        .HasColumnName("price");
+
+                    b.Property<int>("Stock")
+                        .HasColumnType("integer")
+                        .HasColumnName("stock");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("pk_products");
+
+                    b.HasIndex("PageId", "CreatedAt")
+                        .HasDatabaseName("ix_products_page_id_created_at");
+
+                    b.ToTable("products", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_products_stock", "stock >= 0");
+                        });
                 });
 
             modelBuilder.Entity("Dawwerli.Domain.Entities.Rating", b =>
@@ -1360,6 +1486,65 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.ToTable("request_dispatches", (string)null);
                 });
 
+            modelBuilder.Entity("Dawwerli.Domain.Entities.SellerAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<bool>("Disabled")
+                        .HasColumnType("boolean")
+                        .HasColumnName("disabled");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("email");
+
+                    b.Property<int>("FailedLogins")
+                        .HasColumnType("integer")
+                        .HasColumnName("failed_logins");
+
+                    b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_login_at");
+
+                    b.Property<DateTime?>("LockedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("locked_until");
+
+                    b.Property<Guid>("PageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("page_id");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("password_hash");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_seller_accounts");
+
+                    b.HasIndex("Email")
+                        .IsUnique()
+                        .HasDatabaseName("ix_seller_accounts_email");
+
+                    b.HasIndex("PageId")
+                        .HasDatabaseName("ix_seller_accounts_page_id");
+
+                    b.ToTable("seller_accounts", (string)null);
+                });
+
             modelBuilder.Entity("Dawwerli.Domain.Entities.SettingsRecord", b =>
                 {
                     b.Property<int>("Id")
@@ -1379,6 +1564,140 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasName("pk_settings");
 
                     b.ToTable("settings", (string)null);
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.StoreOrder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("address");
+
+                    b.Property<long>("Commission")
+                        .HasColumnType("bigint")
+                        .HasColumnName("commission");
+
+                    b.Property<double>("CommissionPercent")
+                        .HasColumnType("double precision")
+                        .HasColumnName("commission_percent");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CustomerUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("customer_user_id");
+
+                    b.Property<int?>("GovernorateId")
+                        .HasColumnType("integer")
+                        .HasColumnName("governorate_id");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("text")
+                        .HasColumnName("note");
+
+                    b.Property<long>("Number")
+                        .HasColumnType("bigint")
+                        .HasColumnName("number");
+
+                    b.Property<Guid>("PageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("page_id");
+
+                    b.Property<int>("PaymentMethod")
+                        .HasColumnType("integer")
+                        .HasColumnName("payment_method");
+
+                    b.Property<string>("PaymentReference")
+                        .HasColumnType("text")
+                        .HasColumnName("payment_reference");
+
+                    b.Property<int>("PaymentStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("payment_status");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("StatusChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("status_changed_at");
+
+                    b.Property<string>("StatusReason")
+                        .HasColumnType("text")
+                        .HasColumnName("status_reason");
+
+                    b.Property<long>("Subtotal")
+                        .HasColumnType("bigint")
+                        .HasColumnName("subtotal");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_store_orders");
+
+                    b.HasIndex("Number")
+                        .IsUnique()
+                        .HasDatabaseName("ix_store_orders_number");
+
+                    b.HasIndex("CustomerUserId", "CreatedAt")
+                        .HasDatabaseName("ix_store_orders_customer_user_id_created_at");
+
+                    b.HasIndex("PageId", "Status", "CreatedAt")
+                        .HasDatabaseName("ix_store_orders_page_id_status_created_at");
+
+                    b.ToTable("store_orders", (string)null);
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.StoreOrderItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ImageKey")
+                        .HasColumnType("text")
+                        .HasColumnName("image_key");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer")
+                        .HasColumnName("quantity");
+
+                    b.Property<long>("UnitPrice")
+                        .HasColumnType("bigint")
+                        .HasColumnName("unit_price");
+
+                    b.HasKey("Id")
+                        .HasName("pk_store_order_items");
+
+                    b.HasIndex("OrderId")
+                        .HasDatabaseName("ix_store_order_items_order_id");
+
+                    b.ToTable("store_order_items", (string)null);
                 });
 
             modelBuilder.Entity("Dawwerli.Domain.Entities.Strike", b =>
@@ -1640,6 +1959,18 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.Navigation("Page");
                 });
 
+            modelBuilder.Entity("Dawwerli.Domain.Entities.CartItem", b =>
+                {
+                    b.HasOne("Dawwerli.Domain.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_cart_items_products_product_id");
+
+                    b.Navigation("Product");
+                });
+
             modelBuilder.Entity("Dawwerli.Domain.Entities.Offer", b =>
                 {
                     b.HasOne("Dawwerli.Domain.Entities.Page", "Page")
@@ -1723,6 +2054,18 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_page_governorates_pages_page_id");
                 });
 
+            modelBuilder.Entity("Dawwerli.Domain.Entities.Product", b =>
+                {
+                    b.HasOne("Dawwerli.Domain.Entities.Page", "Page")
+                        .WithMany()
+                        .HasForeignKey("PageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_products_pages_page_id");
+
+                    b.Navigation("Page");
+                });
+
             modelBuilder.Entity("Dawwerli.Domain.Entities.Request", b =>
                 {
                     b.HasOne("Dawwerli.Domain.Entities.Category", "Category")
@@ -1753,6 +2096,40 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.Navigation("Governorate");
                 });
 
+            modelBuilder.Entity("Dawwerli.Domain.Entities.SellerAccount", b =>
+                {
+                    b.HasOne("Dawwerli.Domain.Entities.Page", "Page")
+                        .WithMany()
+                        .HasForeignKey("PageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_seller_accounts_pages_page_id");
+
+                    b.Navigation("Page");
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.StoreOrder", b =>
+                {
+                    b.HasOne("Dawwerli.Domain.Entities.Page", "Page")
+                        .WithMany()
+                        .HasForeignKey("PageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_store_orders_pages_page_id");
+
+                    b.Navigation("Page");
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.StoreOrderItem", b =>
+                {
+                    b.HasOne("Dawwerli.Domain.Entities.StoreOrder", null)
+                        .WithMany("Items")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_store_order_items_store_orders_order_id");
+                });
+
             modelBuilder.Entity("Dawwerli.Domain.Entities.User", b =>
                 {
                     b.HasOne("Dawwerli.Domain.Entities.Governorate", "Governorate")
@@ -1768,6 +2145,11 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.Navigation("Categories");
 
                     b.Navigation("Governorates");
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.StoreOrder", b =>
+                {
+                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }
