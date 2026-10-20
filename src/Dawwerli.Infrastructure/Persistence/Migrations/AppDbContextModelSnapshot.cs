@@ -1163,6 +1163,10 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("order_id");
 
+                    b.Property<string>("PhotoKey")
+                        .HasColumnType("text")
+                        .HasColumnName("photo_key");
+
                     b.Property<int>("Reason")
                         .HasColumnType("integer")
                         .HasColumnName("reason");

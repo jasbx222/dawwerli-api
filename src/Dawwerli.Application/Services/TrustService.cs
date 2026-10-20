@@ -38,7 +38,7 @@ public sealed class TrustService(Shared s, INotifier notifier, ITextCatalog text
         if (TrustPolicy.IsPermanent(u.BanCount, rules)) u.IsBanned = true;
         else u.PostingBannedUntil = s.Now.AddDays(rules.PostingBanDays);
         u.BanCount++;
-        await notifier.NotifyAsync(userId, texts.Get("customer.banned.title"), texts.Get("customer.banned.body"), "/standing", ct);
+        await notifier.NotifyAsync(userId, texts.Get("customer.banned.title"), texts.Get("customer.banned.body"), "/account/standing", ct);
     }
 
     public async Task<Result<IdDto>> ReportAsync(ReportDto dto, CancellationToken ct)
@@ -52,7 +52,7 @@ public sealed class TrustService(Shared s, INotifier notifier, ITextCatalog text
         var report = new Report
         {
             ReporterUserId = s.Me.UserId, Target = target, TargetId = dto.TargetId, OrderId = dto.OrderId, OfferId = dto.OfferId,
-            Reason = reason, Text = dto.Text?.Trim() ?? "",
+            Reason = reason, Text = dto.Text?.Trim() ?? "", PhotoKey = dto.PhotoKey,
             Status = reason == ReportReason.DepositRequest ? CaseStatus.UnderReview : CaseStatus.Open,
         };
         Db.Reports.Add(report);

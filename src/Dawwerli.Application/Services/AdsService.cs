@@ -76,7 +76,7 @@ public sealed class AdsService(Shared s, WalletService wallet, ITextCatalog text
             OwnerType = AdOwnerType.Page, PageId = page.Id, Slot = slot, Title = dto.Title.Trim(), Headline = dto.Headline?.Trim() ?? "",
             DiscountPercent = dto.DiscountPercent, GovernorateIds = dto.GovernorateIds.ToArray(), CategoryIds = dto.CategoryIds.ToArray(),
             StartAt = start, EndAt = start.AddDays(dto.Days), DailyPrice = price, Status = AdStatus.Pending, ImageKey = dto.ImageKey,
-            DeepLink = dto.DeepLink ?? $"/page/{page.Id}",
+            DeepLink = dto.DeepLink ?? $"/pages/p/{page.Id}",
         };
         Db.AdCampaigns.Add(ad);
         await Db.SaveChangesAsync(ct);

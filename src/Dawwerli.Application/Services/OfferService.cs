@@ -70,7 +70,7 @@ public sealed class OfferService(Shared s, WalletService wallet, TrustService tr
         await tx.CommitAsync(ct);
 
         await notifier.NotifyAsync(r.CustomerId, texts.Get("customer.newOffer.title"), texts.Get("customer.newOffer.body", page.Name, dto.Price),
-            $"/offers/{r.Id}", ct);
+            $"/requests/{r.Id}/offers", ct);
         await realtime.RequestChangedAsync(r.Id, ct);
         return new IdDto(offer.Id);
     }

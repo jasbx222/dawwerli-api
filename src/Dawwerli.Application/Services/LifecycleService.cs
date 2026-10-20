@@ -30,14 +30,14 @@ public sealed class LifecycleService(Shared s, DispatchService dispatch, AdsServ
             await Db.SaveChangesAsync(ct);
             await dispatch.DispatchPublicAsync(r, ct);
             await Db.SaveChangesAsync(ct);
-            await notifier.NotifyAsync(r.CustomerId, texts.Get("customer.widened.title"), texts.Get("customer.widened.body"), $"/live/{r.Id}", ct);
+            await notifier.NotifyAsync(r.CustomerId, texts.Get("customer.widened.title"), texts.Get("customer.widened.body"), $"/requests/{r.Id}/live", ct);
         }
 
         foreach (var r in await Db.Requests.Where(r => (r.Status == RequestStatus.Open || r.Status == RequestStatus.Expanded) && r.OffersCount == 0 && r.ExpiresAt <= now).ToListAsync(ct))
         {
             r.Status = RequestStatus.Expired;
             await Db.SaveChangesAsync(ct);
-            await notifier.NotifyAsync(r.CustomerId, texts.Get("customer.expired.title"), texts.Get("customer.expired.body"), $"/live/{r.Id}", ct);
+            await notifier.NotifyAsync(r.CustomerId, texts.Get("customer.expired.title"), texts.Get("customer.expired.body"), $"/requests/{r.Id}/live", ct);
             await realtime.RequestChangedAsync(r.Id, ct);
         }
 
@@ -57,7 +57,7 @@ public sealed class LifecycleService(Shared s, DispatchService dispatch, AdsServ
             var ask = o.DeliveryAskedAt is null ? now >= due : now >= o.DeliveryAskedAt.Value.AddDays(rules.DeliveryReaskDays) && o.DeliveryAskedAt < due.AddDays(rules.DeliveryReaskDays);
             if (!ask) continue;
             o.DeliveryAskedAt = now;
-            await notifier.NotifyAsync(o.CustomerId, texts.Get("customer.askReceived.title"), texts.Get("customer.askReceived.body", o.Page!.Name), $"/order/{o.Id}", ct);
+            await notifier.NotifyAsync(o.CustomerId, texts.Get("customer.askReceived.title"), texts.Get("customer.askReceived.body", o.Page!.Name), $"/orders/{o.Id}", ct);
         }
         await Db.SaveChangesAsync(ct);
 

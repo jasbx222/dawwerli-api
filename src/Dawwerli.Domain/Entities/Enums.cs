@@ -16,7 +16,7 @@ public enum AdOwnerType { Page, Brand, Platform }
 public enum AdStatus { Pending, Rejected, PausedBalance, PausedSuspended, Active, Ended }
 public enum AdEventType { Impression, Click }
 public enum ReportTarget { Page, Customer }
-public enum ReportReason { PriceChanged, NoReply, Abuse, ContactSolicitation, OffAppPayment, DepositRequest, BannedItem, Fake, Other }
+public enum ReportReason { PriceChanged, NoReply, Abuse, ContactSolicitation, OffAppPayment, DepositRequest, BannedItem, Fake, Other, NotDelivered, Mismatch }
 public enum CaseStatus { Open, UnderReview, Accepted, Rejected }
 public enum DisputeType { NoReply, NotDelivered, FakeReport, StrikeAppeal }
 public enum PageMarkKind { NoReply, Complaint }

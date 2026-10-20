@@ -118,7 +118,7 @@ public sealed class OrderService(Shared s, TrustService trust, INotifier notifie
             Reason = ReportReason.NoReply, Status = CaseStatus.Open });
         await Db.SaveChangesAsync(ct);
         await notifier.NotifyAsync(o.CustomerId, texts.Get("customer.askReceived.title"), texts.Get("customer.askReceived.body", o.Page!.Name),
-            $"/order/{o.Id}", ct);
+            $"/orders/{o.Id}", ct);
         return Result.Ok();
     }
 

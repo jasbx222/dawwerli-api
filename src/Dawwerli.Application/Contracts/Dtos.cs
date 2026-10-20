@@ -51,7 +51,7 @@ public sealed record OrderDto(Guid Id, string OrderNo, Guid PageId, string PageN
 public sealed record DeliveryAnswerDto(string Answer);
 
 // ---- trust
-public sealed record ReportDto(string Target, Guid TargetId, Guid? OrderId, Guid? OfferId, string Reason, string? Text);
+public sealed record ReportDto(string Target, Guid TargetId, Guid? OrderId, Guid? OfferId, string Reason, string? Text, string? PhotoKey = null);
 public sealed record BlockDto(Guid? UserId, Guid? PageId);
 public sealed record BlockedDto(Guid UserId, Guid? PageId, string Name);
 public sealed record RegionDto(int GovernorateId, string Area);

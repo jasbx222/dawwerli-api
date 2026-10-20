@@ -48,7 +48,7 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
         p.RejectReason = dto.Reason;
         s.Audit("page.reject", nameof(Page), id, JsonSerializer.Serialize(dto));
         await Db.SaveChangesAsync(ct);
-        await notifier.NotifyAsync(p.UserId, texts.Get("page.rejected.title"), dto.Reason, "/seller/rejected", ct);
+        await notifier.NotifyAsync(p.UserId, texts.Get("page.rejected.title"), dto.Reason, "/seller/verify/rejected", ct);
         return Result.Ok();
     }
 
@@ -193,7 +193,7 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
         d.ResolvedAt = s.Now;
         s.Audit("dispute.resolve", nameof(Dispute), id, JsonSerializer.Serialize(dto));
         await Db.SaveChangesAsync(ct);
-        await notifier.NotifyAsync(d.OpenedByUserId, texts.Get("dispute.resolved"), dto.Decision, $"/dispute/{d.Id}", ct);
+        await notifier.NotifyAsync(d.OpenedByUserId, texts.Get("dispute.resolved"), dto.Decision, $"/account/dispute/status?id={d.Id}", ct);
         return Result.Ok();
     }
 

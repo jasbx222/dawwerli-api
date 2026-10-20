@@ -63,7 +63,7 @@ public sealed class DispatchService(IAppDbContext db, IClock clock, INotifier no
         await db.SaveChangesAsync(ct);
         foreach (var p in pages)
         {
-            await notifier.NotifyAsync(p.UserId, texts.Get("page.newRequest.title"), texts.Get("page.newRequest.body", r.Title), $"/seller/submit/{r.Id}", ct);
+            await notifier.NotifyAsync(p.UserId, texts.Get("page.newRequest.title"), texts.Get("page.newRequest.body", r.Title), $"/seller/requests/{r.Id}/offer", ct);
             await realtime.PageInboxChangedAsync(p.Id, ct);
         }
         await realtime.RequestChangedAsync(r.Id, ct);
