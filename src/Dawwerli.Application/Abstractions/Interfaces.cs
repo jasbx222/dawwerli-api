@@ -71,6 +71,8 @@ public interface ISmsSender
 public sealed class AdminAuthOptions
 {
     public const string Section = "AdminAuth";
+    /// <summary>When false, admins sign in with email + password only.</summary>
+    public bool TotpEnabled { get; set; }
     public string TotpIssuer { get; set; } = "";
     public int TotpDriftSteps { get; set; }
     public int MinPasswordLength { get; set; }

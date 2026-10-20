@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 
 namespace Dawwerli.Application.Services;
 
-public sealed class AuthService(ITotpService totp, IAppDbContext db, IClock clock, IRulesProvider rulesProvider, IPhoneProtector phones,
+public sealed class AuthService(ITotpService totp, IOptions<AdminAuthOptions> adminAuth, IAppDbContext db, IClock clock, IRulesProvider rulesProvider, IPhoneProtector phones,
     ISmsSender sms, ITokenService tokens, IPasswordHasher passwords, IOptions<OtpOptions> otpOptions)
 {
     public async Task<Result<OtpSentDto>> RequestOtpAsync(OtpRequestDto dto, CancellationToken ct)
@@ -153,6 +153,7 @@ public sealed class AuthService(ITotpService totp, IAppDbContext db, IClock cloc
         var user = await db.Users.FirstOrDefaultAsync(u => u.Email == dto.Email && u.Role == UserRole.Admin && u.DeletedAt == null, ct);
         if (user?.PasswordHash is null || user.IsBanned || !passwords.Verify(dto.Password, user.PasswordHash))
             return Error.Unauthorized("auth.credentials", "Wrong email or password");
+        if (!adminAuth.Value.TotpEnabled) return await AdminSessionAsync(user, ct);
         if (string.IsNullOrWhiteSpace(dto.Code))
         {
             if (user.TotpEnabled) return new AdminLoginResultDto("code_required", null);
@@ -168,6 +169,11 @@ public sealed class AuthService(ITotpService totp, IAppDbContext db, IClock cloc
             return Error.Unauthorized("auth.totp", "Wrong or reused authenticator code");
         user.TotpLastStep = step;
         user.TotpEnabled = true;
+        return await AdminSessionAsync(user, ct);
+    }
+
+    private async Task<AdminLoginResultDto> AdminSessionAsync(User user, CancellationToken ct)
+    {
         var issued = await IssueAsync(user, null, Guid.NewGuid(), null, ct);
         return new AdminLoginResultDto("ok", new AuthResultDto(issued.AccessToken, issued.RefreshToken, issued.ExpiresIn, false, user.Role.Code(), null));
     }

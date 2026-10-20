@@ -26,31 +26,13 @@ public class AdminRolesAndTotpTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task Totp_enrollment_wrong_code_replay_and_code_required()
+    public async Task Password_only_login_returns_tokens_when_totp_is_off()
     {
         var c = await factory.ClientAsync();
-        var super = await Api.AdminAsync(c, factory);
-        var email = $"totp-{Guid.NewGuid():N}@test.local";
-        var password = Guid.NewGuid().ToString("N");
-        (await c.SendAsync(Req("POST", "/api/admin/v1/admins", super, new { email, name = "t", password, adminRole = "Moderator" }))).EnsureSuccessStatusCode();
-
-        var enroll = await (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password })).ReadAsync();
-        Assert.Equal("enroll", enroll.GetProperty("status").GetString());
-        Assert.False(enroll.TryGetProperty("auth", out var a) && a.ValueKind != JsonValueKind.Null);
-        var secret = enroll.GetProperty("secret").GetString()!;
-        Assert.StartsWith("otpauth://totp/", enroll.GetProperty("otpAuthUri").GetString());
-
-        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password, code = "000000" == Api.TotpCode(secret) ? "111111" : "000000" })).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password = "wrong", code = Api.TotpCode(secret) })).StatusCode);
-
-        var code = Api.TotpCode(secret);
-        var ok = await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password, code });
-        ok.EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password, code })).StatusCode);
-
-        var again = await (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password })).ReadAsync();
-        Assert.Equal("code_required", again.GetProperty("status").GetString());
-        Assert.False(again.TryGetProperty("secret", out var sct) && sct.ValueKind != JsonValueKind.Null);
+        var res = await (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email = ApiFactory.AdminEmail, password = factory.AdminPassword })).ReadAsync();
+        Assert.Equal("ok", res.GetProperty("status").GetString());
+        Assert.False(string.IsNullOrEmpty(res.GetProperty("auth").GetProperty("accessToken").GetString()));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email = ApiFactory.AdminEmail, password = "wrong" })).StatusCode);
     }
 
     public static IEnumerable<object[]> Matrix() => new[]
@@ -129,4 +111,44 @@ public class AdminRolesAndTotpTests(ApiFactory factory)
         var verified = await (await c.SendAsync(Req("GET", "/api/admin/v1/pages?status=verified", super))).ReadAsync();
         Assert.Contains(verified.EnumerateArray(), p => p.GetProperty("id").GetString() == id);
     }
+}
+
+public class AdminTotpOnTests(TotpApiFactory factory) : IClassFixture<TotpApiFactory>
+{
+    private static HttpRequestMessage Req(string verb, string path, string token, object? body = null)
+    {
+        var m = new HttpRequestMessage(new HttpMethod(verb), path);
+        if (verb is "POST" or "PUT") m.Content = JsonContent.Create(body ?? new { });
+        m.Headers.Authorization = new("Bearer", token);
+        return m;
+    }
+
+    [Fact]
+    public async Task Totp_enrollment_wrong_code_replay_and_code_required()
+    {
+        var c = await factory.ClientAsync();
+        var super = await Api.AdminAsync(c, factory);
+        var email = $"totp-{Guid.NewGuid():N}@test.local";
+        var password = Guid.NewGuid().ToString("N");
+        (await c.SendAsync(Req("POST", "/api/admin/v1/admins", super, new { email, name = "t", password, adminRole = "Moderator" }))).EnsureSuccessStatusCode();
+
+        var enroll = await (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password })).ReadAsync();
+        Assert.Equal("enroll", enroll.GetProperty("status").GetString());
+        Assert.False(enroll.TryGetProperty("auth", out var a) && a.ValueKind != JsonValueKind.Null);
+        var secret = enroll.GetProperty("secret").GetString()!;
+        Assert.StartsWith("otpauth://totp/", enroll.GetProperty("otpAuthUri").GetString());
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password, code = "000000" == Api.TotpCode(secret) ? "111111" : "000000" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password = "wrong", code = Api.TotpCode(secret) })).StatusCode);
+
+        var code = Api.TotpCode(secret);
+        var ok = await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password, code });
+        ok.EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password, code })).StatusCode);
+
+        var again = await (await c.PostAsJsonAsync("/api/v1/auth/admin/login", new { email, password })).ReadAsync();
+        Assert.Equal("code_required", again.GetProperty("status").GetString());
+        Assert.False(again.TryGetProperty("secret", out var sct) && sct.ValueKind != JsonValueKind.Null);
+    }
+
 }

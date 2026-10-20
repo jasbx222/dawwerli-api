@@ -11,13 +11,15 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Dawwerli.Tests;
 
 /// <summary>Boots the real API against a throw-away PostgreSQL database (DAWWERLI_TEST_DB).</summary>
-public sealed class ApiFactory : WebApplicationFactory<Program>
+public class ApiFactory : WebApplicationFactory<Program>
 {
     public const string AdminEmail = "admin@test.local";
+    protected virtual bool TotpEnabled => false;
     public string? AdminToken;
     public readonly string AdminPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
-    private readonly string _db = Environment.GetEnvironmentVariable("DAWWERLI_TEST_DB")
-        ?? "Host=localhost;Port=5432;Database=dawwerli_test;Username=postgres;Password=postgres";
+    protected virtual string DatabaseSuffix => "";
+    private string _db => (Environment.GetEnvironmentVariable("DAWWERLI_TEST_DB")
+        ?? "Host=localhost;Port=5432;Database=dawwerli_test;Username=postgres;Password=postgres") + DatabaseSuffix;
 
     protected override void ConfigureWebHost(IWebHostBuilder b)
     {
@@ -37,6 +39,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         b.UseSetting("RateLimits:GlobalPerMinute", "100000");
         b.UseSetting("RateLimits:AdminLoginPerMinute", "10000");
         b.UseSetting("Database:MigrateAndSeedOnStartup", "false");
+        b.UseSetting("AdminAuth:TotpEnabled", TotpEnabled ? "true" : "false");
     }
 
     private static readonly SemaphoreSlim Gate = new(1, 1);
@@ -94,6 +97,7 @@ public static class Api
     public static async Task<string> AdminLoginAsync(HttpClient c, string email, string password)
     {
         var first = await (await c.SendAsync(Post("/api/v1/auth/admin/login", new { email, password }, null))).ReadAsync();
+        if (first.GetProperty("status").GetString() == "ok") return first.GetProperty("auth").GetProperty("accessToken").GetString()!;
         if (first.GetProperty("status").GetString() != "enroll") throw new InvalidOperationException("Expected enrollment");
         var code = TotpCode(first.GetProperty("secret").GetString()!);
         var ok = await (await c.SendAsync(Post("/api/v1/auth/admin/login", new { email, password, code }, null))).ReadAsync();
@@ -139,4 +143,11 @@ public static class Api
 
     public static Task<HttpResponseMessage> OfferAsync(HttpClient c, string page, string requestId, long price = 50000) =>
         c.SendAsync(Post($"/api/v1/requests/{requestId}/offers", new { price, deliveryHours = 24, condition = "new", photoKey = "offers/x.webp" }, page));
+}
+
+/// <summary>Same API with admin TOTP switched on.</summary>
+public sealed class TotpApiFactory : ApiFactory
+{
+    protected override bool TotpEnabled => true;
+    protected override string DatabaseSuffix => ";Database=dawwerli_test_totp";
 }
