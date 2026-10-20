@@ -62,4 +62,15 @@ public class AdminAuthorizationTests(ApiFactory factory)
         var forged = admin[..^4] + (admin[^4..] == "AAAA" ? "BBBB" : "AAAA");
         Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(Req("GET", "/api/admin/v1/kpis", forged))).StatusCode);
     }
+
+    [Fact]
+    public async Task Only_admin_can_upload_category_images()
+    {
+        var c = await factory.ClientAsync();
+        var customer = await Api.CustomerAsync(c);
+        var form = new MultipartFormDataContent { { new ByteArrayContent([1, 2, 3]), "file", "a.png" }, { new StringContent("categories"), "kind" } };
+        var m = new HttpRequestMessage(HttpMethod.Post, "/api/v1/media") { Content = form };
+        m.Headers.Authorization = new("Bearer", customer);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(m)).StatusCode);
+    }
 }

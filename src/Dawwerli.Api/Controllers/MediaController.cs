@@ -1,4 +1,5 @@
 using Dawwerli.Api.Infrastructure;
+using Dawwerli.Application.Services;
 using Dawwerli.Application.Contracts;
 using Dawwerli.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -19,7 +20,8 @@ public sealed class MediaController(LocalStorage storage, IOptions<StorageOption
     {
         var o = options.Value;
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!Folders.Contains(kind)) return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.kind", "Unknown kind"));
+        if (kind == AdminService.CategoryImageFolder && !User.IsInRole(Roles.Admin)) return Forbid();
+        if (!Folders.Contains(kind) && kind != AdminService.CategoryImageFolder) return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.kind", "Unknown kind"));
         if (file.Length == 0 || file.Length > o.MaxUploadBytes) return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.size", "File too large"));
         if (!o.AllowedExtensions.Contains(ext)) return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.type", "File type not allowed"));
         await using var s = file.OpenReadStream();

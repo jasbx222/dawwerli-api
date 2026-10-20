@@ -13,6 +13,7 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
     IRulesProvider rulesProvider, IPhoneProtector phones)
 {
     private IAppDbContext Db => s.Db;
+    public const string CategoryImageFolder = "categories";
 
     public async Task<IReadOnlyList<AdminPageDto>> PagesAsync(string? status, CancellationToken ct)
     {
@@ -273,8 +274,15 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
         return Result.Ok();
     }
 
+    public async Task<IReadOnlyList<AdminCategoryDto>> CategoriesAsync(CancellationToken ct) =>
+        (await Db.Categories.OrderBy(c => c.SortOrder).ThenBy(c => c.Id).ToListAsync(ct)).Select(c => new AdminCategoryDto(c.Id, c.Slug, c.Name, c.Emoji,
+            c.ImageKey, s.Url(c.ImageKey), c.Badge.Code(), c.SortOrder, c.IsActive, c.Keywords, c.FieldSchema)).ToList();
+
     public async Task<Result<int>> UpsertCategoryAsync(int? id, UpsertCategoryDto dto, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(dto.Name) || string.IsNullOrWhiteSpace(dto.Slug)) return Error.Validation("category.required", "Name and slug are required");
+        if (dto.ImageKey is { } key && !key.StartsWith(CategoryImageFolder + "/", StringComparison.Ordinal)) return Error.Validation("category.image", "Image must be uploaded as a category image");
+        if (await Db.Categories.AnyAsync(x => x.Slug == dto.Slug && x.Id != (id ?? 0), ct)) return Error.Conflict("category.slug", "Slug already used");
         if (!EnumText.TryParse<CategoryBadge>(dto.Badge, out var badge)) return Errors.BadEnum("badge");
         try { JsonDocument.Parse(dto.FieldSchema); } catch (JsonException) { return Error.Validation("schema.json", "Field schema must be JSON"); }
         var c = id is null ? null : await Db.Categories.FirstOrDefaultAsync(x => x.Id == id, ct);

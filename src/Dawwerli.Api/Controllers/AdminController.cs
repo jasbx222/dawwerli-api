@@ -34,6 +34,7 @@ public sealed class AdminController(AdminService admin) : AppController
     [HttpPost("reports/{id:guid}/resolve")] public async Task<IActionResult> ResolveReport(Guid id, ResolveDto dto, CancellationToken ct) => From(await admin.ResolveReportAsync(id, dto, ct));
     [HttpGet("settings")] public async Task<IActionResult> Settings(CancellationToken ct) => Ok(await admin.SettingsAsync(ct));
     [HttpPut("settings"), HttpPut("settings/pricing")] public async Task<IActionResult> SaveSettings(BusinessRules dto, CancellationToken ct) => From(await admin.SaveSettingsAsync(dto, ct));
+    [HttpGet("categories")] public async Task<IActionResult> Categories(CancellationToken ct) => Ok(await admin.CategoriesAsync(ct));
     [HttpPost("categories")] public async Task<IActionResult> CreateCategory(UpsertCategoryDto dto, CancellationToken ct) => From(await admin.UpsertCategoryAsync(null, dto, ct));
     [HttpPut("categories/{id:int}")] public async Task<IActionResult> UpdateCategory(int id, UpsertCategoryDto dto, CancellationToken ct) => From(await admin.UpsertCategoryAsync(id, dto, ct));
     [HttpGet("keywords")] public async Task<IActionResult> Keywords(CancellationToken ct) => Ok(await admin.KeywordsAsync(ct));

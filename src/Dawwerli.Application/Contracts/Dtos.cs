@@ -120,3 +120,4 @@ public sealed record AdminTopUpDto(Guid Id, Guid PageId, string PageName, string
 public sealed record AdminReportDto(Guid Id, Guid ReporterUserId, string Target, Guid TargetId, Guid? OrderId, Guid? OfferId, string Reason, string Text, string? PhotoUrl, string Status, DateTime At);
 public sealed record AdminDisputeDto(Guid Id, Guid OpenedByUserId, Guid? OrderId, Guid? SubjectId, string Type, string Status, string Text, IReadOnlyList<string> Photos, string? Decision, DateTime CreatedAt, DateTime DecideBy);
 public sealed record AdminUserDto(Guid Id, string Role, string? Name, string? Phone, string? Governorate, bool IsBanned, DateTime? PostingBannedUntil, int BanCount, DateTime CreatedAt);
+public sealed record AdminCategoryDto(int Id, string Slug, string Name, string? Emoji, string? ImageKey, string? ImageUrl, string Badge, int SortOrder, bool IsActive, IReadOnlyList<string> Keywords, string FieldSchema);
