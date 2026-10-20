@@ -1,4 +1,5 @@
 using Dawwerli.Api.Infrastructure;
+using Dawwerli.Application.Abstractions;
 using Dawwerli.Application.Services;
 using Dawwerli.Application.Contracts;
 using Dawwerli.Infrastructure.Services;
@@ -12,15 +13,17 @@ namespace Dawwerli.Api.Controllers;
 public sealed class MediaController(LocalStorage storage, IOptions<StorageOptions> options) : AppController
 {
     private static readonly FileExtensionContentTypeProvider Types = new();
-    private static readonly string[] Folders = ["requests", "offers", "receipts", "ads", "disputes", "pages"];
+    private static readonly string[] Folders = ["requests", "offers", "receipts", "ads", "disputes", "pages", StoreOptions.ProductImageFolder];
 
     /// <summary>Multipart upload; returns a storage key to send in the create call.</summary>
-    [Authorize, HttpPost("api/v1/media"), RequestSizeLimit(50_000_000)]
+    [Authorize, HttpPost("api/v1/media"), HttpPost("api/seller/v1/media"), RequestSizeLimit(50_000_000)]
     public async Task<IActionResult> Upload(IFormFile file, [FromForm] string kind, CancellationToken ct)
     {
         var o = options.Value;
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (kind == AdminService.CategoryImageFolder && !User.IsInRole(Roles.Admin)) return Forbid();
+        // Product images come only from the web seller portal; portal tokens upload nothing else.
+        if ((kind == StoreOptions.ProductImageFolder) != User.IsInRole(Roles.SellerPortal)) return Forbid();
         if (!Folders.Contains(kind) && kind != AdminService.CategoryImageFolder) return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.kind", "Unknown kind"));
         if (file.Length == 0 || file.Length > o.MaxUploadBytes) return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.size", "File too large"));
         if (!o.AllowedExtensions.Contains(ext)) return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.type", "File type not allowed"));

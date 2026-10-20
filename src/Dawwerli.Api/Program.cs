@@ -16,11 +16,18 @@ using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
+// Store defaults ship with the code; appsettings.json / environment still win when they set the same keys.
+config.Sources.Insert(0, new Microsoft.Extensions.Configuration.Json.JsonConfigurationSource
+{
+    Path = "appsettings.Store.json", Optional = false, ReloadOnChange = false,
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(builder.Environment.ContentRootPath),
+});
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(config, runWorker: config.GetValue("Jobs:Enabled", true));
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
+builder.Services.AddScoped<ICurrentSeller, HttpCurrentSeller>();
 builder.Services.AddSingleton<IRealtime, SignalRRealtime>();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<ValidationFilter>();
@@ -45,7 +52,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         },
     };
 });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(o => o.AddPolicy(Roles.SellerPortalPolicy, p => p.RequireRole(Roles.SellerPortal)
+    .RequireClaim(SellerPortalClaims.Scope, SellerPortalClaims.ScopeValue)));
 
 var limits = config.GetSection("RateLimits");
 builder.Services.AddRateLimiter(o =>

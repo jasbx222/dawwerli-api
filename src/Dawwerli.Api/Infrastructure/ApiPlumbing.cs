@@ -19,8 +19,19 @@ public sealed class HttpCurrentUser(IHttpContextAccessor http) : ICurrentUser
     public string? DeviceKey => http.HttpContext?.Request.Headers["X-Device-Id"].FirstOrDefault();
 }
 
+/// <summary>Web seller portal token (role + scope + page id, see SellerTokenService).</summary>
+public sealed class HttpCurrentSeller(IHttpContextAccessor http) : ICurrentSeller
+{
+    private ClaimsPrincipal? P => http.HttpContext?.User;
+    public Guid AccountId => Guid.TryParse(P?.FindFirstValue(ClaimTypes.NameIdentifier) ?? P?.FindFirstValue("sub"), out var id) ? id : Guid.Empty;
+    public Guid PageId => Guid.TryParse(P?.FindFirstValue(Dawwerli.Infrastructure.Services.AppClaims.PageId), out var id) ? id : Guid.Empty;
+}
+
 public static class Roles
 {
+    public const string SellerPortal = Dawwerli.Infrastructure.Services.SellerPortalClaims.Role;
+    /// <summary>Policy: SellerPortal role AND seller_portal scope.</summary>
+    public const string SellerPortalPolicy = "SellerPortal";
     public const string Customer = nameof(UserRole.Customer);
     public const string Page = nameof(UserRole.Page);
     public const string Admin = nameof(UserRole.Admin);
