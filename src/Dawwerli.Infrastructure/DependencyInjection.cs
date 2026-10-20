@@ -39,6 +39,7 @@ public static class DependencyInjection
         services.AddSingleton<IPushSender, LogPushSender>();
         services.AddScoped<IRulesProvider, RulesProvider>();
         services.AddScoped<INotifier, Notifier>();
+        services.AddScoped<ScenarioSeeder>();
         services.AddScoped<Seeder>();
 
         if (string.Equals(config[$"{SmsOptions.Section}:Provider"], "Http", StringComparison.OrdinalIgnoreCase))

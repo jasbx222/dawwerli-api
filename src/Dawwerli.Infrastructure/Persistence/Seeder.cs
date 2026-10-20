@@ -12,7 +12,7 @@ namespace Dawwerli.Infrastructure.Persistence;
 
 /// <summary>Applies migrations and inserts reference data (idempotent). The only place seed data lives.</summary>
 public sealed class Seeder(AppDbContext db, IConfiguration config, IStorage storage, IPasswordHasher passwords,
-    IOptions<AdminSeedOptions> admin, ILogger<Seeder> log)
+    IOptions<AdminSeedOptions> admin, ScenarioSeeder scenario, ILogger<Seeder> log)
 {
     private sealed record CategorySeed(string Slug, string Name, string? Emoji, string Image, string Badge, string[] Keywords, JsonElement Schema);
     private sealed record CatalogSeed(string[] Governorates, Dictionary<string, string[]> Adjacency, CategorySeed[] Categories, string[] BannedKeywords);
@@ -65,5 +65,6 @@ public sealed class Seeder(AppDbContext db, IConfiguration config, IStorage stor
             log.LogInformation("Seeded admin account");
         }
         await db.SaveChangesAsync(ct);
+        await scenario.RunAsync(ct);
     }
 }
