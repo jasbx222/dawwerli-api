@@ -407,4 +407,307 @@ public class StoreTests(ApiFactory factory)
         var sellerList = await (await c.SendAsync(Req("GET", "/api/seller/v1/products", s.Token))).Content.ReadAsStringAsync();
         Assert.Contains("\"ratingCount\":2", sellerList);
     }
+
+    // ---------- audit: authorization, races, validation ----------
+
+    private async Task<int> DbAsync(Func<AppDbContext, Task<int>> work)
+    {
+        using var scope = factory.Services.CreateScope();
+        return await work(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+    }
+
+    private static string OrderId(JsonElement checkout) => checkout.GetProperty("orderId").GetString()!;
+
+    [Fact]
+    public async Task Customers_cannot_read_cancel_or_rate_another_customers_order()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token);
+        var owner = await Api.CustomerAsync(c);
+        var stranger = await Api.CustomerAsync(c);
+        var id = OrderId(await CheckoutAsync(c, owner, p, 1));
+
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("GET", $"/api/v1/store/orders/{id}", stranger))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("POST", $"/api/v1/store/orders/{id}/cancel", stranger))).StatusCode);
+        Assert.Equal(0, (await (await c.SendAsync(Req("GET", "/api/v1/store/orders", stranger))).ReadAsync()).GetProperty("total").GetInt32());
+        await DeliverAsync(c, s, id);
+        Assert.Equal("rating.not_received", Code(await (await c.SendAsync(Req("PUT", $"/api/v1/products/{p}/rating", stranger, new { stars = 1 }))).ReadAsync()));
+        Assert.Equal("delivered", (await (await c.SendAsync(Req("GET", $"/api/v1/store/orders/{id}", owner))).ReadAsync()).GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task Sellers_cannot_read_or_move_another_pages_orders()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s1 = await SellerAsync(c, admin);
+        var s2 = await SellerAsync(c, admin);
+        var p = await ProductIdAsync(c, s1.Token);
+        var id = OrderId(await CheckoutAsync(c, await Api.CustomerAsync(c), p, 1));
+
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("GET", $"/api/seller/v1/orders/{id}", s2.Token))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("POST", $"/api/seller/v1/orders/{id}/status", s2.Token, new { status = "rejected" }))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("GET", $"/api/seller/v1/products/{p}", s2.Token))).StatusCode);
+        Assert.Equal(0, (await (await c.SendAsync(Req("GET", "/api/seller/v1/orders", s2.Token))).ReadAsync()).GetProperty("total").GetInt32());
+        Assert.Equal(4, await StockAsync(c, p));
+    }
+
+    [Fact]
+    public async Task Racing_cancels_and_rejects_end_the_order_once_and_restore_stock_once()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token, stock: 5);
+        var customer = await Api.CustomerAsync(c);
+        var id = OrderId(await CheckoutAsync(c, customer, p, 2));
+        Assert.Equal(3, await StockAsync(c, p));
+
+        var calls = Enumerable.Range(0, 10).Select(i => i % 2 == 0
+            ? c.SendAsync(Req("POST", $"/api/v1/store/orders/{id}/cancel", customer))
+            : c.SendAsync(Req("POST", $"/api/seller/v1/orders/{id}/status", s.Token, new { status = "rejected" })));
+        var results = await Task.WhenAll(calls);
+        Assert.Equal(1, results.Count(r => r.IsSuccessStatusCode));
+        Assert.All(results.Where(r => !r.IsSuccessStatusCode), r => Assert.Equal(HttpStatusCode.Conflict, r.StatusCode));
+        Assert.Equal(5, await StockAsync(c, p));
+    }
+
+    [Fact]
+    public async Task Concurrent_checkouts_never_oversell()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token, stock: 3);
+        var customers = new List<string>();
+        for (var i = 0; i < 8; i++)
+        {
+            var t = await Api.CustomerAsync(c);
+            (await c.SendAsync(Req("POST", "/api/v1/cart/items", t, new { productId = p, quantity = 1 }))).EnsureSuccessStatusCode();
+            customers.Add(t);
+        }
+        var results = await Task.WhenAll(customers.Select(t =>
+            c.SendAsync(Req("POST", "/api/v1/store/checkout", t, new { address = "بغداد", paymentMethod = "cash" }))));
+        Assert.Equal(3, results.Count(r => r.IsSuccessStatusCode));
+        foreach (var r in results.Where(r => !r.IsSuccessStatusCode))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+            Assert.Equal("product.stock", Code(await r.ReadAsync()));
+        }
+        Assert.Equal(0, await StockAsync(c, p));
+    }
+
+    [Fact]
+    public async Task The_same_cart_checked_out_twice_at_once_places_one_order()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token, stock: 5);
+        var customer = await Api.CustomerAsync(c);
+        (await c.SendAsync(Req("POST", "/api/v1/cart/items", customer, new { productId = p, quantity = 2 }))).EnsureSuccessStatusCode();
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 5).Select(_ =>
+            c.SendAsync(Req("POST", "/api/v1/store/checkout", customer, new { address = "بغداد", paymentMethod = "cash" }))));
+        Assert.Equal(1, results.Count(r => r.IsSuccessStatusCode));
+        Assert.Equal(3, await StockAsync(c, p));
+        Assert.Equal(1, (await (await c.SendAsync(Req("GET", "/api/v1/store/orders", customer))).ReadAsync()).GetProperty("total").GetInt32());
+    }
+
+    [Fact]
+    public async Task Checkout_refuses_a_cart_that_ended_up_with_two_pages()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var a = await ProductIdAsync(c, (await SellerAsync(c, admin)).Token);
+        var other = await SellerAsync(c, admin);
+        var b = await ProductIdAsync(c, other.Token);
+        var customer = await Api.CustomerAsync(c);
+        (await c.SendAsync(Req("POST", "/api/v1/cart/items", customer, new { productId = a, quantity = 1 }))).EnsureSuccessStatusCode();
+        var me = (await (await c.SendAsync(Req("GET", "/api/v1/me", customer))).ReadAsync()).GetProperty("id").GetString()!;
+        // Two adds from different pages racing past the one-page check.
+        await DbAsync(async db =>
+        {
+            db.CartItems.Add(new Domain.Entities.CartItem { UserId = Guid.Parse(me), PageId = Guid.Parse(other.PageId), ProductId = Guid.Parse(b), Quantity = 1 });
+            return await db.SaveChangesAsync();
+        });
+
+        var r = await c.SendAsync(Req("POST", "/api/v1/store/checkout", customer, new { address = "بغداد", paymentMethod = "cash" }));
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Equal("cart.other_page", Code(await r.ReadAsync()));
+        Assert.Equal(5, await StockAsync(c, a));
+        Assert.Equal(5, await StockAsync(c, b));
+    }
+
+    [Fact]
+    public async Task Prices_and_totals_come_from_the_database()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token);
+        var customer = await Api.CustomerAsync(c);
+        (await c.SendAsync(Req("POST", "/api/v1/cart/items", customer, new { productId = p, quantity = 2, price = 1, unitPrice = 1 }))).EnsureSuccessStatusCode();
+        var r = await c.SendAsync(Req("POST", "/api/v1/store/checkout", customer, new { address = "بغداد", paymentMethod = "cash", total = 1, subtotal = 1 }));
+        var result = await r.ReadAsync();
+        Assert.Equal(50000, result.GetProperty("total").GetInt64());
+        var order = await (await c.SendAsync(Req("GET", $"/api/v1/store/orders/{OrderId(result)}", customer))).ReadAsync();
+        Assert.Equal(25000, order.GetProperty("items")[0].GetProperty("unitPrice").GetInt64());
+    }
+
+    [Fact]
+    public async Task Product_limit_holds_under_concurrent_creates()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s = await SellerAsync(c, admin);
+        (await c.SendAsync(Req("PUT", $"/api/admin/v1/pages/{s.PageId}/product-limit", admin, new { limit = 3 }))).EnsureSuccessStatusCode();
+        var results = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => CreateProductAsync(c, s.Token)));
+        Assert.Equal(3, results.Count(r => r.IsSuccessStatusCode));
+        Assert.Equal(3, (await (await c.SendAsync(Req("GET", "/api/seller/v1/products", s.Token))).ReadAsync()).GetProperty("total").GetInt32());
+    }
+
+    [Fact]
+    public async Task Banned_words_are_rejected_on_product_update_too()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token);
+        var r = await c.SendAsync(Req("PUT", $"/api/seller/v1/products/{p}", s.Token,
+            new { name = "قميص", description = "يجي وياه مسدس", price = 1000, imageKeys = Array.Empty<string>(), categoryId = Category, stock = 1 }));
+        Assert.Equal("product.prohibited", Code(await r.ReadAsync()));
+    }
+
+    [Fact]
+    public async Task A_suspended_page_cannot_change_products_or_sell()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token);
+        var customer = await Api.CustomerAsync(c);
+        var id = Guid.Parse(s.PageId);
+        await DbAsync(db => db.Pages.Where(x => x.Id == id).ExecuteUpdateAsync(x => x.SetProperty(pg => pg.SuspendedUntil, DateTime.UtcNow.AddDays(1))));
+
+        Assert.Equal("page.suspended", Code(await (await CreateProductAsync(c, s.Token)).ReadAsync()));
+        Assert.Equal("page.suspended", Code(await (await c.SendAsync(Req("PUT", $"/api/seller/v1/products/{p}", s.Token,
+            new { name = "قميص", description = "", price = 1000, imageKeys = Array.Empty<string>(), categoryId = Category, stock = 9 }))).ReadAsync()));
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("POST", "/api/v1/cart/items", customer, new { productId = p, quantity = 1 }))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("GET", $"/api/v1/products/{p}", null))).StatusCode);
+        // Orders already placed can still be handled.
+        (await c.SendAsync(Req("GET", "/api/seller/v1/orders", s.Token))).EnsureSuccessStatusCode();
+    }
+
+    [Fact]
+    public async Task Hidden_or_deleted_products_cannot_be_rated_bought_or_favorited()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s = await SellerAsync(c, admin);
+        var p = await ProductIdAsync(c, s.Token);
+        var gone = await ProductIdAsync(c, s.Token);
+        var customer = await Api.CustomerAsync(c);
+        await DeliverAsync(c, s, OrderId(await CheckoutAsync(c, customer, p, 1)));
+        await DeliverAsync(c, s, OrderId(await CheckoutAsync(c, customer, gone, 1)));
+
+        (await c.SendAsync(Req("POST", $"/api/admin/v1/products/{p}/hide", admin))).EnsureSuccessStatusCode();
+        (await c.SendAsync(Req("DELETE", $"/api/seller/v1/products/{gone}", s.Token))).EnsureSuccessStatusCode();
+        foreach (var id in new[] { p, gone })
+        {
+            Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("PUT", $"/api/v1/products/{id}/rating", customer, new { stars = 5 }))).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("PUT", $"/api/v1/products/{id}/favorite", customer))).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("POST", "/api/v1/cart/items", customer, new { productId = id, quantity = 1 }))).StatusCode);
+            var mine = await c.SendAsync(Req("GET", $"/api/v1/products/{id}/ratings/mine", customer));
+            if (mine.StatusCode != HttpStatusCode.NotFound) Assert.False((await mine.ReadAsync()).GetProperty("canRate").GetBoolean());
+        }
+    }
+
+    [Fact]
+    public async Task Sold_out_products_and_bad_quantities_are_refused()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var soldOut = await ProductIdAsync(c, s.Token, stock: 0);
+        var p = await ProductIdAsync(c, s.Token, stock: 5);
+        var customer = await Api.CustomerAsync(c);
+        Task<HttpResponseMessage> Add(string id, int quantity) => c.SendAsync(Req("POST", "/api/v1/cart/items", customer, new { productId = id, quantity }));
+
+        Assert.Equal("product.unavailable", Code(await (await Add(soldOut, 1)).ReadAsync()));
+        Assert.Equal(HttpStatusCode.BadRequest, (await Add(p, 0)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Add(p, -3)).StatusCode);
+        Assert.Equal("cart.quantity", Code(await (await Add(p, 1000)).ReadAsync()));
+        Assert.Equal(HttpStatusCode.BadRequest, (await CreateProductAsync(c, s.Token, price: -5)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await CreateProductAsync(c, s.Token, price: 1_000_000_000_000)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await CreateProductAsync(c, s.Token, stock: -1)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await CreateProductAsync(c, s.Token, name: new string('a', 500))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Free_text_and_paging_inputs_are_bounded()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token);
+        var customer = await Api.CustomerAsync(c);
+        var id = OrderId(await CheckoutAsync(c, customer, p, 1));
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.SendAsync(Req("POST", $"/api/seller/v1/orders/{id}/status", s.Token,
+            new { status = "rejected", reason = new string('x', 2000) }))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.SendAsync(Req("POST", $"/api/v1/products/{p}/report", customer,
+            new { reason = "fake", text = new string('x', 5000) }))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.SendAsync(Req("POST", "/api/v1/store/checkout", customer,
+            new { address = new string('x', 1000), paymentMethod = "cash" }))).StatusCode);
+        var far = await c.SendAsync(Req("GET", $"/api/v1/pages/{s.PageId}/products?page={int.MaxValue}&pageSize=100000", null));
+        Assert.Equal(HttpStatusCode.OK, far.StatusCode);
+        Assert.Equal(50, (await far.ReadAsync()).GetProperty("pageSize").GetInt32());
+        Assert.Equal(HttpStatusCode.OK, (await c.SendAsync(Req("GET", $"/api/seller/v1/orders?page={int.MaxValue}", s.Token))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_password_reset_signs_out_existing_seller_sessions()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s = await SellerAsync(c, admin);
+        (await c.SendAsync(Req("GET", "/api/seller/v1/me", s.Token))).EnsureSuccessStatusCode();
+        (await c.SendAsync(Req("POST", $"/api/admin/v1/seller-accounts/{s.AccountId}/reset-password", admin, new { password = "another-pass-99" })))
+            .EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(Req("GET", "/api/seller/v1/me", s.Token))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await CreateProductAsync(c, s.Token)).StatusCode);
+    }
+
+    private static async Task<HttpResponseMessage> UploadAsync(HttpClient c, string token, string kind, string fileName, byte[] bytes)
+    {
+        var form = new MultipartFormDataContent { { new ByteArrayContent(bytes), "file", fileName }, { new StringContent(kind), "kind" } };
+        var m = new HttpRequestMessage(HttpMethod.Post, "/api/seller/v1/media") { Content = form };
+        m.Headers.Authorization = new("Bearer", token);
+        return await c.SendAsync(m);
+    }
+
+    [Fact]
+    public async Task Product_images_must_be_real_images()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        byte[] png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52];
+        var html = "<html><script>alert(1)</script></html>"u8.ToArray();
+
+        Assert.Equal("media.type", Code(await (await UploadAsync(c, s.Token, "products", "voice.mp3", [0x49, 0x44, 0x33, 4, 0, 0])).ReadAsync()));
+        Assert.Equal("media.type", Code(await (await UploadAsync(c, s.Token, "products", "fake.png", html)).ReadAsync()));
+        Assert.Equal("media.size", Code(await (await UploadAsync(c, s.Token, "products", "big.png", [.. png, .. new byte[11 * 1024 * 1024]])).ReadAsync()));
+        var ok = await UploadAsync(c, s.Token, "products", "shirt.png", png);
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        Assert.StartsWith("products/", (await ok.ReadAsync()).GetProperty("key").GetString());
+    }
+
+    [Fact]
+    public async Task Seller_login_hides_whether_an_email_exists_and_hashes_passwords()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var unknown = await c.SendAsync(Req("POST", "/api/seller/v1/auth/login", null, new { email = $"n{Guid.NewGuid():N}@shop.test", password = "wrong-wrong-1" }));
+        Assert.Equal(HttpStatusCode.Unauthorized, unknown.StatusCode);
+        Assert.Equal("auth.credentials", Code(await unknown.ReadAsync()));
+        var id = Guid.Parse(s.AccountId);
+        var hash = "";
+        await DbAsync(async db => { hash = (await db.SellerAccounts.FirstAsync(a => a.Id == id)).PasswordHash; return 0; });
+        Assert.DoesNotContain(Password, hash);
+        Assert.Contains('.', hash);
+    }
 }

@@ -39,8 +39,11 @@ public sealed class StoreKit(Shared s, IOptions<StoreOptions> options)
     public Task<int> ProductCountAsync(Guid pageId, CancellationToken ct) =>
         Db.Products.CountAsync(p => p.PageId == pageId && p.DeletedAt == null, ct);
 
+    /// <summary>Deepest page served; keeps (page - 1) * size far from int overflow.</summary>
+    public const int MaxPageNumber = 10_000;
+
     public (int Page, int Size) Paging(int? page, int? size) =>
-        (Math.Max(1, page ?? 1), Math.Clamp(size ?? Options.DefaultPageSize, 1, Options.MaxPageSize));
+        (Math.Clamp(page ?? 1, 1, MaxPageNumber), Math.Clamp(size ?? Options.DefaultPageSize, 1, Options.MaxPageSize));
 
     /// <summary>Reserves stock atomically (no oversell under concurrency). Returns false when stock is short.</summary>
     public async Task<bool> ReserveAsync(Guid productId, int qty, CancellationToken ct) =>

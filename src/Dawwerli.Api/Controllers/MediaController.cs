@@ -27,9 +27,33 @@ public sealed class MediaController(LocalStorage storage, IOptions<StorageOption
         if (!Folders.Contains(kind) && kind != AdminService.CategoryImageFolder) return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.kind", "Unknown kind"));
         if (file.Length == 0 || file.Length > o.MaxUploadBytes) return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.size", "File too large"));
         if (!o.AllowedExtensions.Contains(ext)) return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.type", "File type not allowed"));
+        // Product photos are images only, and an image's bytes must match its extension (no renamed HTML, SVG or scripts).
+        if (kind == StoreOptions.ProductImageFolder && !ImageExtensions.Contains(ext))
+            return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.type", "Product photos must be JPEG, PNG, WebP or HEIC"));
+        if (ImageExtensions.Contains(ext) && !await LooksLikeImageAsync(file, ext, ct))
+            return ProblemMapping.ToProblem(Domain.Common.Error.Validation("media.type", "File content does not match its type"));
         await using var s = file.OpenReadStream();
         var key = await storage.SaveAsync(s, ext, kind, ct);
         return Ok(new MediaDto(key, storage.Url(key)!));
+    }
+
+    private static readonly string[] ImageExtensions = [".jpg", ".jpeg", ".png", ".webp", ".heic"];
+
+    /// <summary>Magic-byte check for the image formats we accept.</summary>
+    private static async Task<bool> LooksLikeImageAsync(IFormFile file, string ext, CancellationToken ct)
+    {
+        var head = new byte[16];
+        await using var s = file.OpenReadStream();
+        var n = await s.ReadAtLeastAsync(head, head.Length, throwOnEndOfStream: false, ct);
+        bool At(int offset, params byte[] sig) => n >= offset + sig.Length && head.AsSpan(offset, sig.Length).SequenceEqual(sig);
+        return ext switch
+        {
+            ".jpg" or ".jpeg" => At(0, 0xFF, 0xD8, 0xFF),
+            ".png" => At(0, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A),
+            ".webp" => At(0, (byte)'R', (byte)'I', (byte)'F', (byte)'F') && At(8, (byte)'W', (byte)'E', (byte)'B', (byte)'P'),
+            ".heic" => At(4, (byte)'f', (byte)'t', (byte)'y', (byte)'p'),
+            _ => false,
+        };
     }
 
     /// <summary>Signed, expiring download.</summary>
@@ -40,6 +64,7 @@ public sealed class MediaController(LocalStorage storage, IOptions<StorageOption
         var path = storage.PathFor(key);
         if (!System.IO.File.Exists(path)) return NotFound();
         Response.Headers.CacheControl = "private, max-age=3600";
+        Response.Headers.XContentTypeOptions = "nosniff";
         return PhysicalFile(path, Types.TryGetContentType(path, out var t) ? t : "application/octet-stream");
     }
 }

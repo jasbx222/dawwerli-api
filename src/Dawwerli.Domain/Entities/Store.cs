@@ -100,4 +100,11 @@ public class SellerAccount : Entity
     public int FailedLogins { get; set; }
     public DateTime? LockedUntil { get; set; }
     public DateTime? LastLoginAt { get; set; }
+
+    /// <summary>
+    /// Short fingerprint of the password hash, carried in portal tokens. A password reset changes the hash,
+    /// so tokens issued before it stop matching and are refused.
+    /// </summary>
+    public static string StampOf(string passwordHash) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(passwordHash)))[..16];
 }

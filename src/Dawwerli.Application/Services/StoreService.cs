@@ -124,7 +124,8 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
     {
         if (!await Db.Products.AnyAsync(p => p.Id == productId && p.DeletedAt == null, ct)) return StoreErrors.ProductNotFound;
         var mine = await Db.ProductRatings.FirstOrDefaultAsync(r => r.ProductId == productId && r.UserId == Me, ct);
-        return new MyProductRatingDto(await ReceivedAsync(productId, ct), mine?.Stars, mine?.Comment);
+        var canRate = await Visible.AnyAsync(p => p.Id == productId, ct) && await ReceivedAsync(productId, ct);
+        return new MyProductRatingDto(canRate, mine?.Stars, mine?.Comment);
     }
 
     /// <summary>Creates or edits the customer's rating, then refreshes the product's average and count.</summary>
@@ -136,7 +137,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
             return new Error(ErrorKind.Validation, "rating.comment", "Comment too long", new Dictionary<string, object?> { ["max"] = kit.Options.RatingCommentMaxLength });
         if (await kit.BannedWordAsync(ct, comment) is { } word)
             return new Error(ErrorKind.BusinessRule, "rating.prohibited", "Text contains a banned word", new Dictionary<string, object?> { ["word"] = word });
-        if (!await Db.Products.AnyAsync(p => p.Id == productId && p.DeletedAt == null, ct)) return StoreErrors.ProductNotFound;
+        if (!await Visible.AnyAsync(p => p.Id == productId, ct)) return StoreErrors.ProductNotFound;
         if (!await ReceivedAsync(productId, ct)) return Error.Rule("rating.not_received", "You can rate a product after you receive it");
 
         var mine = await Db.ProductRatings.FirstOrDefaultAsync(r => r.ProductId == productId && r.UserId == Me, ct);
@@ -223,6 +224,10 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         await using var tx = await Db.BeginTransactionAsync(ct);
         var items = await Db.CartItems.Include(i => i.Product).ThenInclude(p => p!.Page).Where(i => i.UserId == Me).ToListAsync(ct);
         if (items.Count == 0) return StoreErrors.CartEmpty;
+        // Claim the cart: a parallel checkout of the same cart waits on these rows, then finds nothing to delete.
+        var claimed = await Db.CartItems.Where(i => i.UserId == Me).ExecuteDeleteAsync(ct);
+        if (claimed != items.Count) return StoreErrors.CartEmpty;
+        if (items.Select(i => i.PageId).Concat(items.Select(i => i.Product!.PageId)).Distinct().Count() != 1) return StoreErrors.CartOtherPage;
         var page = items[0].Product!.Page!;
         if (!page.IsActive(s.Now)) return Error.Rule("page.unavailable", "This page is not taking orders right now");
         if (items.FirstOrDefault(i => !i.Product!.Visible) is { } gone) return new Error(ErrorKind.Conflict, StoreErrors.Unavailable.Code, "Product is not available",
@@ -250,7 +255,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         order.Subtotal = order.Items.Sum(i => i.UnitPrice * i.Quantity);
         order.Commission = StoreOrderFlow.CommissionOf(order.Subtotal, order.CommissionPercent);
         Db.StoreOrders.Add(order);
-        Db.CartItems.RemoveRange(items);
+        foreach (var i in items) Db.Entry(i).State = EntityState.Detached;
 
         string? payUrl = null;
         if (method == PaymentMethod.Electronic)
@@ -287,6 +292,8 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
     public async Task<Result<StoreOrderDto>> CancelAsync(Guid id, CancellationToken ct)
     {
         await using var tx = await Db.BeginTransactionAsync(ct);
+        // Serializes against the seller's status moves: only one of them ends the order and restores stock.
+        await Db.LockStoreOrderAsync(id, ct);
         var o = await kit.Orders.FirstOrDefaultAsync(x => x.Id == id && x.CustomerUserId == Me, ct);
         if (o is null) return StoreErrors.OrderNotFound;
         if (!StoreOrderFlow.CustomerCanCancel(o.Status)) return StoreErrors.BadTransition;

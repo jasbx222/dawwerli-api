@@ -25,6 +25,7 @@ public sealed class HttpCurrentSeller(IHttpContextAccessor http) : ICurrentSelle
     private ClaimsPrincipal? P => http.HttpContext?.User;
     public Guid AccountId => Guid.TryParse(P?.FindFirstValue(ClaimTypes.NameIdentifier) ?? P?.FindFirstValue("sub"), out var id) ? id : Guid.Empty;
     public Guid PageId => Guid.TryParse(P?.FindFirstValue(Dawwerli.Infrastructure.Services.AppClaims.PageId), out var id) ? id : Guid.Empty;
+    public string? Stamp => P?.FindFirstValue(Dawwerli.Infrastructure.Services.SellerPortalClaims.Stamp);
 }
 
 public static class Roles

@@ -15,6 +15,8 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
 {
     private IAppDbContext Db => kit.Db;
     private static readonly Error BadCredentials = Error.Unauthorized("auth.credentials", "Wrong email or password");
+    /// <summary>Verified against when the email is unknown, so both cases cost one hash and take the same time.</summary>
+    private static string? _dummyHash;
 
     public async Task<Result<SellerSessionDto>> LoginAsync(SellerLoginDto dto, CancellationToken ct)
     {
@@ -23,7 +25,8 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         var acc = await Db.SellerAccounts.Include(a => a.Page).FirstOrDefaultAsync(a => a.Email == email, ct);
         if (acc?.LockedUntil > now)
             return Error.Limited("auth.locked", "Too many wrong passwords", (int)Math.Ceiling((acc.LockedUntil.Value - now).TotalSeconds));
-        if (acc is null || !passwords.Verify(dto.Password ?? "", acc.PasswordHash))
+        var ok = passwords.Verify(dto.Password ?? "", acc?.PasswordHash ?? (_dummyHash ??= passwords.Hash(Guid.NewGuid().ToString())));
+        if (acc is null || !ok)
         {
             if (acc is not null)
             {
@@ -51,6 +54,7 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
     {
         var acc = await Db.SellerAccounts.Include(a => a.Page).FirstOrDefaultAsync(a => a.Id == seller.AccountId && a.PageId == seller.PageId, ct);
         if (acc is null || acc.Disabled || acc.Page is null) return Error.Unauthorized("seller.disabled", "Seller account is disabled");
+        if (seller.Stamp != SellerAccount.StampOf(acc.PasswordHash)) return Error.Unauthorized("seller.session_expired", "Password changed, sign in again");
         return (acc, acc.Page);
     }
 
@@ -90,14 +94,18 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         var c = await ContextAsync(ct);
         if (!c.IsSuccess) return c.Error!;
         var page = c.Value.Page;
-        if (page.Status != PageStatus.Verified) return Errors.PageNotVerified;
+        if (CanSell(page) is { } closed) return closed;
         if (await CheckAsync(dto, ct) is { } bad) return bad;
+        // The page row lock makes concurrent creates count one after another, so the limit can't be overshot.
+        await using var tx = await Db.BeginTransactionAsync(ct);
+        await Db.LockPageAsync(page.Id, ct);
         var limit = await kit.ProductLimitAsync(page, ct);
         if (await kit.ProductCountAsync(page.Id, ct) >= limit) return StoreErrors.LimitReached(limit);
         var p = new Product { PageId = page.Id };
         Apply(p, dto);
         Db.Products.Add(p);
         await Db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return kit.ToSellerDto(p);
     }
 
@@ -105,6 +113,7 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
     {
         var c = await ContextAsync(ct);
         if (!c.IsSuccess) return c.Error!;
+        if (CanSell(c.Value.Page) is { } closed) return closed;
         var p = await OwnProductAsync(id, ct);
         if (p is null) return StoreErrors.ProductNotFound;
         if (await CheckAsync(dto, ct) is { } bad) return bad;
@@ -125,6 +134,12 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         await Db.SaveChangesAsync(ct);
         return Result.Ok();
     }
+
+    /// <summary>Product changes need a verified page that isn't suspended; orders already placed can still be handled.</summary>
+    private Error? CanSell(Page page) =>
+        page.Status != PageStatus.Verified ? Errors.PageNotVerified
+        : page.SuspendedUntil > s.Now ? Errors.PageSuspended
+        : null;
 
     private Task<Product?> OwnProductAsync(Guid id, CancellationToken ct) =>
         Db.Products.FirstOrDefaultAsync(x => x.Id == id && x.PageId == seller.PageId && x.DeletedAt == null, ct);
@@ -188,6 +203,7 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         if (!c.IsSuccess) return c.Error!;
         if (!EnumText.TryParse<StoreOrderStatus>(dto.Status, out var to)) return Errors.BadEnum("status");
         await using var tx = await Db.BeginTransactionAsync(ct);
+        await Db.LockStoreOrderAsync(id, ct);
         var o = await kit.Orders.FirstOrDefaultAsync(x => x.Id == id && x.PageId == seller.PageId, ct);
         if (o is null) return StoreErrors.OrderNotFound;
         if (!StoreOrderFlow.SellerCanMove(o.Status, to)) return StoreErrors.BadTransition;

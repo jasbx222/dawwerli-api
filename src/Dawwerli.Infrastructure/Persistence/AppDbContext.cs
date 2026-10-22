@@ -55,6 +55,12 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IClock 
     public Task LockRequestAsync(Guid requestId, CancellationToken ct = default) =>
         Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM requests WHERE id = {requestId} FOR UPDATE", ct);
 
+    public Task LockStoreOrderAsync(Guid orderId, CancellationToken ct = default) =>
+        Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM store_orders WHERE id = {orderId} FOR UPDATE", ct);
+
+    public Task LockPageAsync(Guid pageId, CancellationToken ct = default) =>
+        Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM pages WHERE id = {pageId} FOR UPDATE", ct);
+
     public async Task<long> NextNumberAsync(string sequence, CancellationToken ct = default) =>
         (await Database.SqlQueryRaw<long>($"SELECT nextval('{(sequence == OrderNumberSeq ? OrderNumberSeq : RequestNumberSeq)}') AS \"Value\"").ToListAsync(ct))[0];
 
