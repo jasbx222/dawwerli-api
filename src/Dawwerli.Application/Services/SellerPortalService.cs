@@ -178,7 +178,7 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
     {
         var c = await ContextAsync(ct);
         if (!c.IsSuccess) return c.Error!;
-        return await desk.ListAsync(seller.PageId, status, pageNo, size, allowGroups: false, hideClosedPhone: false, ct);
+        return await desk.ListAsync(seller.PageId, status, pageNo, size, allowGroups: false, ct);
     }
 
     public async Task<Result<SellerOrderDto>> OrderAsync(Guid id, CancellationToken ct)
@@ -206,7 +206,7 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
             .Select(g => new { g.Key, Count = g.Count() }).ToListAsync(ct);
         var sales = await Db.StoreOrders.Where(o => o.PageId == pageId && o.Status == StoreOrderStatus.Delivered).SumAsync(o => (long?)o.Subtotal, ct) ?? 0;
         var top = await Db.StoreOrderItems
-            .Where(i => Db.StoreOrders.Any(o => o.Id == i.OrderId && o.PageId == pageId && o.Status == StoreOrderStatus.Delivered))
+            .Where(i => i.ProductId != Guid.Empty && Db.StoreOrders.Any(o => o.Id == i.OrderId && o.PageId == pageId && o.Status == StoreOrderStatus.Delivered))
             .GroupBy(i => new { i.ProductId, i.Name })
             .Select(g => new { g.Key.ProductId, g.Key.Name, Qty = g.Sum(i => i.Quantity), Sales = g.Sum(i => i.UnitPrice * i.Quantity) })
             .OrderByDescending(x => x.Qty).Take(kit.Options.TopProductsCount).ToListAsync(ct);

@@ -253,8 +253,22 @@ internal sealed class StoreOrderConfig : IEntityTypeConfiguration<StoreOrder>
         b.HasIndex(x => new { x.PageId, x.Status, x.CreatedAt });
         b.HasIndex(x => new { x.CustomerUserId, x.CreatedAt });
         b.Property(x => x.Address).HasMaxLength(500);
+        b.Property(x => x.LocationNote).HasMaxLength(300);
+        b.Property(x => x.CourierName).HasMaxLength(80);
+        b.Property(x => x.CourierPhone).HasMaxLength(20);
+        b.HasIndex(x => x.OfferOrderId).IsUnique().HasFilter("offer_order_id IS NOT NULL");
         b.HasMany(x => x.Items).WithOne().HasForeignKey(i => i.OrderId);
         b.HasMany(x => x.History).WithOne().HasForeignKey(e => e.OrderId);
+    }
+}
+
+internal sealed class CourierConfig : IEntityTypeConfiguration<Courier>
+{
+    public void Configure(EntityTypeBuilder<Courier> b)
+    {
+        b.Property(x => x.Name).HasMaxLength(80);
+        b.Property(x => x.Phone).HasMaxLength(20);
+        b.HasIndex(x => x.PageId);
     }
 }
 

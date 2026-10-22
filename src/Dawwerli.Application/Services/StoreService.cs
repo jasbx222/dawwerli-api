@@ -8,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Dawwerli.Application.Services;
 
 /// <summary>Customer side of the page store: browse a page's products, one-page cart, checkout and store orders.</summary>
-public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider payments, INotifier notifier, ITextCatalog texts)
+public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider payments, INotifier notifier, ITextCatalog texts, OfferOrderLink link)
 {
     private IAppDbContext Db => kit.Db;
     private Guid Me => s.Me.UserId;
@@ -245,6 +245,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
     public async Task<Result<CheckoutResultDto>> CheckoutAsync(CheckoutDto dto, CancellationToken ct)
     {
         if (!EnumText.TryParse<PaymentMethod>(dto.PaymentMethod, out var method)) return Errors.BadEnum("paymentMethod");
+        if (OrderPin.Check(dto.Latitude, dto.Longitude, dto.Note, dto.LocationNote) is { } pinError) return pinError;
         if (method == PaymentMethod.Electronic && !payments.IsConfigured) return StoreErrors.PaymentNotConfigured;
         var user = await Db.Users.FirstAsync(u => u.Id == Me, ct);
         if (user.IsBanned) return Error.Forbidden("account.banned", "Account is banned");
@@ -276,6 +277,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
             Number = await kit.NextNumberAsync(ct), CustomerUserId = Me, PageId = page.Id, Status = StoreOrderStatus.New,
             PaymentMethod = method, PaymentStatus = method == PaymentMethod.Cash ? PaymentStatus.CashOnDelivery : PaymentStatus.Pending,
             Address = dto.Address.Trim(), GovernorateId = dto.GovernorateId, Note = dto.Note?.Trim(), StatusChangedAt = now,
+            Latitude = dto.Latitude, Longitude = dto.Longitude, LocationNote = OrderPin.Clean(dto.LocationNote),
             CommissionPercent = rules.StoreCommissionPercent,
             Items = items.Select(i => new StoreOrderItem { ProductId = i.ProductId, Name = i.Product!.Name, UnitPrice = i.Product.Price,
                 Quantity = i.Quantity, ImageKey = i.Product.ImageKeys.FirstOrDefault() }).ToList(),
@@ -309,13 +311,15 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         var q = kit.Orders.Where(o => o.CustomerUserId == Me);
         var total = await q.CountAsync(ct);
         var rows = await q.OrderByDescending(o => o.CreatedAt).Skip((p - 1) * n).Take(n).ToListAsync(ct);
-        return new PagedDto<StoreOrderDto>(rows.Select(kit.ToDto).ToList(), total, p, n);
+        var deals = await kit.DealsAsync(rows, ct);
+        return new PagedDto<StoreOrderDto>(rows.Select(o => kit.ToDto(o, deals)).ToList(), total, p, n);
     }
 
     public async Task<Result<StoreOrderDto>> MyOrderAsync(Guid id, CancellationToken ct)
     {
         var o = await kit.Orders.FirstOrDefaultAsync(x => x.Id == id && x.CustomerUserId == Me, ct);
-        return o is null ? StoreErrors.OrderNotFound : kit.ToDto(o);
+        if (o is null) return StoreErrors.OrderNotFound;
+        return kit.ToDto(o, await kit.DealsAsync([o], ct));
     }
 
     public async Task<Result<StoreOrderDto>> CancelAsync(Guid id, CancellationToken ct)
@@ -326,12 +330,13 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         var o = await kit.Orders.FirstOrDefaultAsync(x => x.Id == id && x.CustomerUserId == Me, ct);
         if (o is null) return StoreErrors.OrderNotFound;
         if (!StoreOrderFlow.CustomerCanCancel(o.Status)) return StoreErrors.BadTransition;
+        if (o.Kind == StoreOrderKind.Offer && await link.OnCustomerCancelAsync(o, ct) is { } dealError) return dealError;
         o.Record(StoreOrderStatus.Cancelled, s.Now);
-        await kit.RestoreStockAsync(o, ct);
+        if (o.Kind == StoreOrderKind.Store) await kit.RestoreStockAsync(o, ct);
         await Db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
         await notifier.NotifyAsync(o.Page!.UserId, texts.Get("store.customerCancelled.title"),
             texts.Get("store.customerCancelled.body", Shared.OrderNo(o.Number)), $"/seller/store/orders/{o.Id}", ct);
-        return kit.ToDto(o);
+        return kit.ToDto(o, await kit.DealsAsync([o], ct));
     }
 }

@@ -188,6 +188,6 @@ public sealed class AdminStoreService(StoreKit kit, Shared s, IPasswordHasher pa
         }
         var total = await q.CountAsync(ct);
         var rows = await q.OrderByDescending(o => o.CreatedAt).Skip((p - 1) * n).Take(n).ToListAsync(ct);
-        return new PagedDto<StoreOrderDto>(rows.Select(kit.ToDto).ToList(), total, p, n);
+        return new PagedDto<StoreOrderDto>(rows.Select(o => kit.ToDto(o)).ToList(), total, p, n);
     }
 }

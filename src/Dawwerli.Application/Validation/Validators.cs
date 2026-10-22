@@ -164,6 +164,26 @@ public sealed class CheckoutValidator : AbstractValidator<CheckoutDto>
         RuleFor(x => x.Address).NotEmpty().MaximumLength(o.AddressMaxLength);
         RuleFor(x => x.Note).MaximumLength(o.NoteMaxLength);
         RuleFor(x => x.PaymentMethod).NotEmpty();
+        RuleFor(x => x.LocationNote).MaximumLength(300);
+    }
+}
+
+public sealed class SelectValidator : AbstractValidator<SelectDto>
+{
+    public SelectValidator()
+    {
+        RuleFor(x => x.OfferId).NotEmpty();
+        RuleFor(x => x.Address).MaximumLength(500);
+        RuleFor(x => x.LocationNote).MaximumLength(300);
+    }
+}
+
+public sealed class UpsertCourierValidator : AbstractValidator<UpsertCourierDto>
+{
+    public UpsertCourierValidator()
+    {
+        RuleFor(x => x.Name).NotEmpty().MaximumLength(80);
+        RuleFor(x => x.Phone).NotEmpty().MaximumLength(20);
     }
 }
 

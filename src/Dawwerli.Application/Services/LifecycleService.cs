@@ -50,14 +50,21 @@ public sealed class LifecycleService(Shared s, DispatchService dispatch, AdsServ
         // «وصلك؟» after the promised delivery time, re-ask after N days, close after M days.
         var awaiting = await Db.Orders.Include(o => o.Offer).Include(o => o.Page)
             .Where(o => o.Status == OrderStatus.AwaitingDelivery && o.ContactedAt != null).ToListAsync(ct);
+        var awaitingIds = awaiting.Select(o => (Guid?)o.Id).ToList();
+        var linked = await Db.StoreOrders.Where(x => awaitingIds.Contains(x.OfferOrderId))
+            .ToDictionaryAsync(x => x.OfferOrderId!.Value, x => new { x.Id, x.Status }, ct);
         foreach (var o in awaiting)
         {
             var due = o.ContactedAt!.Value.AddHours(o.Offer!.DeliveryHours);
             if (now >= due.AddDays(rules.DeliveryCloseDays)) { o.Status = OrderStatus.Closed; continue; }
             var ask = o.DeliveryAskedAt is null ? now >= due : now >= o.DeliveryAskedAt.Value.AddDays(rules.DeliveryReaskDays) && o.DeliveryAskedAt < due.AddDays(rules.DeliveryReaskDays);
             if (!ask) continue;
+            // Offer orders are inspected at the door: only ask once the page sent the order out.
+            var so = linked.GetValueOrDefault(o.Id);
+            if (so is not null && so.Status is not (StoreOrderStatus.OutForDelivery or StoreOrderStatus.Delivered)) continue;
             o.DeliveryAskedAt = now;
-            await notifier.NotifyAsync(o.CustomerId, texts.Get("customer.askReceived.title"), texts.Get("customer.askReceived.body", o.Page!.Name), $"/orders/{o.Id}", ct);
+            await notifier.NotifyAsync(o.CustomerId, texts.Get("customer.askReceived.title"), texts.Get("customer.askReceived.body", o.Page!.Name),
+                so is null ? $"/orders/{o.Id}" : $"/store/orders/{so.Id}", ct);
         }
         await Db.SaveChangesAsync(ct);
 

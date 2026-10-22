@@ -19,6 +19,8 @@ public enum AdStatus { Pending, Rejected, PausedBalance, PausedSuspended, Active
 public enum AdEventType { Impression, Click }
 public enum ReportTarget { Page, Customer, Product }
 public enum StoreOrderStatus { New, Accepted, OutForDelivery, Delivered, Cancelled, Rejected }
+/// <summary>Where a store order came from: a cart checkout, or an offer the customer chose on a request.</summary>
+public enum StoreOrderKind { Store, Offer }
 public enum PaymentMethod { Cash, Electronic }
 public enum PaymentStatus { CashOnDelivery, Pending, Paid, Failed }
 public enum ReportReason { PriceChanged, NoReply, Abuse, ContactSolicitation, OffAppPayment, DepositRequest, BannedItem, Fake, Other, NotDelivered, Mismatch }

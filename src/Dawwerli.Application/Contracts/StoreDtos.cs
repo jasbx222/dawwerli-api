@@ -36,15 +36,24 @@ public sealed record CartLineDto(Guid ProductId, string Name, string? ImageUrl, 
 public sealed record CartDto(Guid? PageId, string? PageName, IReadOnlyList<CartLineDto> Items, long Subtotal);
 
 // Orders
-public sealed record CheckoutDto(string Address, int? GovernorateId, string? Note, string PaymentMethod);
+public sealed record CheckoutDto(string Address, int? GovernorateId, string? Note, string PaymentMethod,
+    double? Latitude = null, double? Longitude = null, string? LocationNote = null);
+/// <summary>Optional map pin the customer drops for delivery (no live tracking).</summary>
+public sealed record OrderPinDto(double Latitude, double Longitude, string? Note);
+/// <summary>Courier on an order: shown to the customer once the page sends the order out.</summary>
+public sealed record OrderCourierDto(string Name, string Phone);
+public sealed record CourierDto(Guid Id, string Name, string Phone, bool Active);
+public sealed record UpsertCourierDto(string Name, string Phone, bool Active = true);
 public sealed record CheckoutResultDto(Guid OrderId, string No, string Status, string PaymentStatus, long Total, string? PaymentUrl);
 public sealed record StoreOrderItemDto(Guid ProductId, string Name, long UnitPrice, int Quantity, string? ImageUrl);
 public sealed record StoreOrderDto(Guid Id, string No, Guid PageId, string PageName, string Status, string PaymentMethod, string PaymentStatus,
     string Address, int? GovernorateId, string? Note, long Subtotal, long Commission, string? StatusReason,
-    IReadOnlyList<StoreOrderItemDto> Items, DateTime CreatedAt, DateTime StatusChangedAt, IReadOnlyList<StoreOrderEventDto> History);
+    IReadOnlyList<StoreOrderItemDto> Items, DateTime CreatedAt, DateTime StatusChangedAt, IReadOnlyList<StoreOrderEventDto> History,
+    string Kind = "store", Guid? RequestId = null, Guid? OfferOrderId = null, OrderPinDto? Location = null, OrderCourierDto? Courier = null,
+    string? DealStatus = null, string? Answer = null, bool CanAnswer = false, bool CanRate = false);
 public sealed record StoreOrderEventDto(string Status, DateTime At);
 public sealed record SellerOrderDto(StoreOrderDto Order, string? CustomerName, string? CustomerPhone);
-public sealed record SetOrderStatusDto(string Status, string? Reason);
+public sealed record SetOrderStatusDto(string Status, string? Reason, Guid? CourierId = null);
 
 // Stats
 public sealed record TopProductDto(Guid ProductId, string Name, int Quantity, long Sales);

@@ -8,7 +8,7 @@ namespace Dawwerli.Api.Controllers;
 
 [Route("api/v1"), Authorize(Roles = Roles.Page)]
 public sealed class PagesController(PageService pages, OfferService offers, OrderService orders, WalletService wallet, AdsService ads,
-    PageStoreOrderService storeOrders) : AppController
+    PageStoreOrderService storeOrders, CourierService couriers) : AppController
 {
     private const int LedgerPageSize = 50;
 
@@ -56,6 +56,18 @@ public sealed class PagesController(PageService pages, OfferService offers, Orde
     [HttpPost("pages/me/store-orders/{id:guid}/status")]
     public async Task<IActionResult> StoreOrderStatus(Guid id, SetOrderStatusDto dto, CancellationToken ct) =>
         From(await storeOrders.SetStatusAsync(id, dto, ct));
+
+    [HttpGet("pages/me/couriers")]
+    public async Task<IActionResult> Couriers(CancellationToken ct) => From(await couriers.ListAsync(ct));
+
+    [HttpPost("pages/me/couriers")]
+    public async Task<IActionResult> AddCourier(UpsertCourierDto dto, CancellationToken ct) => From(await couriers.CreateAsync(dto, ct));
+
+    [HttpPut("pages/me/couriers/{id:guid}")]
+    public async Task<IActionResult> EditCourier(Guid id, UpsertCourierDto dto, CancellationToken ct) => From(await couriers.UpdateAsync(id, dto, ct));
+
+    [HttpDelete("pages/me/couriers/{id:guid}")]
+    public async Task<IActionResult> DeleteCourier(Guid id, CancellationToken ct) => From(await couriers.DeleteAsync(id, ct));
 
     [HttpPost("orders/{id:guid}/contacted")]
     public async Task<IActionResult> Contacted(Guid id, CancellationToken ct) => From(await orders.ContactedAsync(id, ct));

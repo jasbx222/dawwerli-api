@@ -65,6 +65,18 @@ public class StoreOrder : Entity
     public Guid PageId { get; set; }
     public Page? Page { get; set; }
     public StoreOrderStatus Status { get; set; }
+    public StoreOrderKind Kind { get; set; }
+    /// <summary>Offer orders: the request and the trust-side order (inspect, mismatch, dispute, rating) this order tracks.</summary>
+    public Guid? RequestId { get; set; }
+    public Guid? OfferOrderId { get; set; }
+    /// <summary>Optional delivery pin the customer dropped on the map, with a short note (no live tracking).</summary>
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public string? LocationNote { get; set; }
+    /// <summary>Courier picked by the page when the order went out; name and phone are snapshotted.</summary>
+    public Guid? CourierId { get; set; }
+    public string? CourierName { get; set; }
+    public string? CourierPhone { get; set; }
     public PaymentMethod PaymentMethod { get; set; }
     public PaymentStatus PaymentStatus { get; set; }
     public string? PaymentReference { get; set; }
@@ -86,6 +98,16 @@ public class StoreOrder : Entity
         StatusChangedAt = at;
         History.Add(new StoreOrderEvent { OrderId = Id, Status = status, At = at });
     }
+}
+
+/// <summary>A delivery person the page sends orders with. The customer sees the name and phone once the order is out.</summary>
+public class Courier : Entity
+{
+    public Guid PageId { get; set; }
+    public string Name { get; set; } = "";
+    public string Phone { get; set; } = "";
+    public bool Active { get; set; } = true;
+    public DateTime? DeletedAt { get; set; }
 }
 
 /// <summary>One step of a store order's status timeline.</summary>
