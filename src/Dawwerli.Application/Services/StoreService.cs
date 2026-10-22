@@ -57,8 +57,17 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
     {
         var x = await Visible.Include(p => p.Page).FirstOrDefaultAsync(p => p.Id == id, ct);
         if (x?.Page is null || !x.Page.IsActive(s.Now)) return StoreErrors.ProductNotFound;
+        ProductReviewDto? mine = null;
+        var favorite = false;
+        if (Me != Guid.Empty)
+        {
+            mine = await Db.ProductRatings.Where(r => r.ProductId == id && r.UserId == Me)
+                .Select(r => new ProductReviewDto(r.Id, r.User!.Name ?? "", r.Stars, r.Comment, r.UpdatedAt)).FirstOrDefaultAsync(ct);
+            if (mine is not null) mine = mine with { CustomerName = FirstName(mine.CustomerName) };
+            favorite = await Db.ProductFavorites.AnyAsync(f => f.ProductId == id && f.UserId == Me, ct);
+        }
         return new ProductDetailsDto(x.Id, x.PageId, x.Page.Name, x.Name, x.Description, x.Price, x.ImageKeys.Select(s.Url).ToList(),
-            x.CategoryId, x.Stock, x.Available, x.Rating, x.RatingCount);
+            x.CategoryId, x.Stock, x.Available, x.Rating, x.RatingCount, mine is not null, mine, favorite);
     }
 
     public async Task<Result> ReportAsync(Guid productId, ReportProductDto dto, CancellationToken ct)
@@ -113,7 +122,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
     {
         if (!await Visible.AnyAsync(p => p.Id == productId, ct)) return StoreErrors.ProductNotFound;
         var (p, n) = kit.Paging(pageNo, size);
-        var q = Db.ProductRatings.Where(r => r.ProductId == productId);
+        var q = Db.ProductRatings.Where(r => r.ProductId == productId && !r.HiddenByAdmin);
         var total = await q.CountAsync(ct);
         var rows = await q.OrderByDescending(r => r.UpdatedAt).Skip((p - 1) * n).Take(n)
             .Select(r => new { r.Id, r.User!.Name, r.Stars, r.Comment, r.UpdatedAt }).ToListAsync(ct);
@@ -128,8 +137,17 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         return new MyProductRatingDto(canRate, mine?.Stars, mine?.Comment);
     }
 
+    public static readonly Error DuplicateRating = Error.Conflict("rating.duplicate", "قيّمت هذا المنتج من قبل، تكدر تعدّل تقييمك بس");
+
+    /// <summary>A new rating only: one per customer per product. A second attempt is a 409; the owner edits through <see cref="RateAsync"/>.</summary>
+    public async Task<Result<ProductRatingSummaryDto>> CreateRatingAsync(Guid productId, RateProductDto dto, CancellationToken ct)
+    {
+        if (await Db.ProductRatings.AnyAsync(r => r.ProductId == productId && r.UserId == Me, ct)) return DuplicateRating;
+        return await RateAsync(productId, dto, ct, createOnly: true);
+    }
+
     /// <summary>Creates or edits the customer's rating, then refreshes the product's average and count.</summary>
-    public async Task<Result<ProductRatingSummaryDto>> RateAsync(Guid productId, RateProductDto dto, CancellationToken ct)
+    public async Task<Result<ProductRatingSummaryDto>> RateAsync(Guid productId, RateProductDto dto, CancellationToken ct, bool createOnly = false)
     {
         if (dto.Stars is < 1 or > 5) return Error.Validation("rating.stars", "Stars must be between 1 and 5");
         var comment = dto.Comment?.Trim() ?? "";
@@ -141,6 +159,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         if (!await ReceivedAsync(productId, ct)) return Error.Rule("rating.not_received", "You can rate a product after you receive it");
 
         var mine = await Db.ProductRatings.FirstOrDefaultAsync(r => r.ProductId == productId && r.UserId == Me, ct);
+        if (createOnly && mine is not null) return DuplicateRating;
         if (mine is null)
         {
             Db.ProductRatings.Add(mine = new ProductRating { ProductId = productId, UserId = Me, Stars = dto.Stars, Comment = comment });
@@ -149,6 +168,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
             {
                 // A parallel request from the same customer inserted first: update that row instead.
                 Db.Entry(mine).State = EntityState.Detached;
+                if (createOnly) return DuplicateRating;
                 mine = await Db.ProductRatings.FirstAsync(r => r.ProductId == productId && r.UserId == Me, ct);
             }
         }

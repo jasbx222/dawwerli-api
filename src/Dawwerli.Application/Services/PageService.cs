@@ -53,7 +53,8 @@ public sealed class PageService(Shared s, IPhoneProtector phones, IOptions<Regio
         var user = await Db.Users.FirstAsync(u => u.Id == p.UserId, ct);
         return new PageMeDto(p.Id, p.Name, p.InstagramHandle, p.Status.Code(), p.RejectReason, p.BioCode, Math.Round(p.Rating, 1), p.RatingCount,
             p.Deals, p.Deals >= rules.TrustedDeals, p.FreeSelectionsUsed, rules.FreeSelections, p.Balance, p.EarlyAccessUntil, p.SuspendedUntil,
-            s.Url(p.ImageKey), p.Bio, ToSettings(p), user.PhoneEncrypted == "" ? null : phones.Decrypt(user.PhoneEncrypted));
+            s.Url(p.ImageKey), p.Bio, ToSettings(p), user.PhoneEncrypted == "" ? null : phones.Decrypt(user.PhoneEncrypted),
+            await Db.PageFollows.CountAsync(f => f.PageId == p.Id, ct));
     }
 
     /// <summary>Re-submits a rejected page for review.</summary>

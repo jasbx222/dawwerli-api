@@ -24,9 +24,14 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
             q = st == PageStatus.Suspended ? q.Where(p => p.Status == st || p.SuspendedUntil > now)
               : st == PageStatus.Verified ? q.Where(p => p.Status == st && (p.SuspendedUntil == null || p.SuspendedUntil <= now)) : q.Where(p => p.Status == st);
         q = st == PageStatus.Pending ? q.OrderBy(p => p.CreatedAt) : q.OrderByDescending(p => p.CreatedAt);
-        return (await q.Take(200).ToListAsync(ct)).Select(p => new AdminPageDto(p.Id, p.Name, p.InstagramHandle,
+        var rows = await q.Take(200).ToListAsync(ct);
+        var ids = rows.Select(p => p.Id).ToList();
+        var followers = await Db.PageFollows.Where(f => ids.Contains(f.PageId)).GroupBy(f => f.PageId)
+            .Select(g => new { g.Key, N = g.Count() }).ToDictionaryAsync(x => x.Key, x => x.N, ct);
+        return rows.Select(p => new AdminPageDto(p.Id, p.Name, p.InstagramHandle,
             p.Status.Code(), p.BioCode, p.Rating, p.Deals, p.Balance, p.CreatedAt,
-            p.User!.PhoneEncrypted == "" ? null : phones.Decrypt(p.User.PhoneEncrypted), p.SuspendedUntil > now ? p.SuspendedUntil : null)).ToList();
+            p.User!.PhoneEncrypted == "" ? null : phones.Decrypt(p.User.PhoneEncrypted), p.SuspendedUntil > now ? p.SuspendedUntil : null,
+            followers.GetValueOrDefault(p.Id), p.FeaturedOrder)).ToList();
     }
 
     private async Task<Result<Page>> PageAsync(Guid id, CancellationToken ct) =>

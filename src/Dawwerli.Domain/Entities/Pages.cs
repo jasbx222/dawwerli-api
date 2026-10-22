@@ -27,6 +27,8 @@ public class Page : Entity
     public DateTime? EarlyAccessUntil { get; set; }
     /// <summary>Admin override of <see cref="Rules.BusinessRules.MaxProductsPerPage"/>; null = global.</summary>
     public int? MaxProducts { get; set; }
+    /// <summary>Admin-picked slot (1 = first) in the customer home «الصفحات المميزة» strip; null = ranked by rating.</summary>
+    public int? FeaturedOrder { get; set; }
     public List<PageCategory> Categories { get; set; } = [];
     public List<PageGovernorate> Governorates { get; set; } = [];
 
@@ -53,4 +55,18 @@ public class PageMark : Entity
     public Guid? OrderId { get; set; }
     public string Title { get; set; } = "";
     public bool UnderReview { get; set; }
+}
+
+/// <summary>A customer following a page: they get a notice when the page adds products (see FollowService).</summary>
+public class PageFollow : Entity
+{
+    public Guid UserId { get; set; }
+    public Guid PageId { get; set; }
+    public Page? Page { get; set; }
+    /// <summary>When this follower last got a new-product notice from the page (start of the throttle window).</summary>
+    public DateTime? LastNotifiedAt { get; set; }
+    /// <summary>The in-app notification of the current window, rewritten as a summary when more products follow.</summary>
+    public Guid? LastNotificationId { get; set; }
+    /// <summary>Products announced in the current window.</summary>
+    public int WindowCount { get; set; }
 }

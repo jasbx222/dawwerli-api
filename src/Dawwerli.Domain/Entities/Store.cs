@@ -35,7 +35,7 @@ public class ProductFavorite : Entity
     public Product? Product { get; set; }
 }
 
-/// <summary>A customer's 1–5 star rating of a product they received; one per customer per product, editable.</summary>
+/// <summary>A customer's 1–5 star rating of a product they received; one per customer per product (the owner may edit it).</summary>
 public class ProductRating : Entity
 {
     public Guid ProductId { get; set; }
@@ -44,6 +44,8 @@ public class ProductRating : Entity
     public User? User { get; set; }
     public int Stars { get; set; }
     public string Comment { get; set; } = "";
+    /// <summary>Hidden by an admin (abuse): left out of the reviews list and the product average.</summary>
+    public bool HiddenByAdmin { get; set; }
 }
 
 /// <summary>One line of a customer's cart. A cart only ever holds products of one page.</summary>

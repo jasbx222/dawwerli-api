@@ -918,6 +918,10 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("early_access_until");
 
+                    b.Property<int?>("FeaturedOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("featured_order");
+
                     b.Property<int>("FreeSelectionsUsed")
                         .HasColumnType("integer")
                         .HasColumnName("free_selections_used");
@@ -992,6 +996,11 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_pages");
 
+                    b.HasIndex("FeaturedOrder")
+                        .IsUnique()
+                        .HasDatabaseName("ix_pages_featured_order")
+                        .HasFilter("featured_order IS NOT NULL");
+
                     b.HasIndex("InstagramHandle")
                         .IsUnique()
                         .HasDatabaseName("ix_pages_instagram_handle");
@@ -1023,6 +1032,54 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_page_categories_category_id_page_id");
 
                     b.ToTable("page_categories", (string)null);
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.PageFollow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("LastNotificationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_notification_id");
+
+                    b.Property<DateTime?>("LastNotifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_notified_at");
+
+                    b.Property<Guid>("PageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("page_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<int>("WindowCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("window_count");
+
+                    b.HasKey("Id")
+                        .HasName("pk_page_follows");
+
+                    b.HasIndex("PageId")
+                        .HasDatabaseName("ix_page_follows_page_id");
+
+                    b.HasIndex("UserId", "PageId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_page_follows_user_id_page_id");
+
+                    b.ToTable("page_follows", (string)null);
                 });
 
             modelBuilder.Entity("Dawwerli.Domain.Entities.PageGovernorate", b =>
@@ -1231,6 +1288,10 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
 
+                    b.Property<bool>("HiddenByAdmin")
+                        .HasColumnType("boolean")
+                        .HasColumnName("hidden_by_admin");
+
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid")
                         .HasColumnName("product_id");
@@ -1252,6 +1313,9 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_product_ratings_user_id");
+
+                    b.HasIndex("ProductId", "HiddenByAdmin")
+                        .HasDatabaseName("ix_product_ratings_product_id_hidden_by_admin");
 
                     b.HasIndex("ProductId", "UpdatedAt")
                         .HasDatabaseName("ix_product_ratings_product_id_updated_at");
@@ -2168,6 +2232,18 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_page_categories_pages_page_id");
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.PageFollow", b =>
+                {
+                    b.HasOne("Dawwerli.Domain.Entities.Page", "Page")
+                        .WithMany()
+                        .HasForeignKey("PageId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_page_follows_pages_page_id");
+
+                    b.Navigation("Page");
                 });
 
             modelBuilder.Entity("Dawwerli.Domain.Entities.PageGovernorate", b =>

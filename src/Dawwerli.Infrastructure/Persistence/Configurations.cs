@@ -64,6 +64,7 @@ internal sealed class PageConfig : IEntityTypeConfiguration<Page>
         b.HasIndex(x => x.InstagramHandle).IsUnique();
         b.HasIndex(x => x.UserId).IsUnique();
         b.HasIndex(x => x.Status);
+        b.HasIndex(x => x.FeaturedOrder).IsUnique().HasFilter("featured_order IS NOT NULL");
         b.HasMany(x => x.Categories).WithOne().HasForeignKey(x => x.PageId);
         b.HasMany(x => x.Governorates).WithOne().HasForeignKey(x => x.PageId);
     }
@@ -233,6 +234,7 @@ internal sealed class ProductRatingConfig : IEntityTypeConfiguration<ProductRati
     {
         b.HasIndex(x => new { x.ProductId, x.UserId }).IsUnique();
         b.HasIndex(x => new { x.ProductId, x.UpdatedAt });
+        b.HasIndex(x => new { x.ProductId, x.HiddenByAdmin });
         b.Property(x => x.Comment).HasMaxLength(1000);
         b.ToTable(t => t.HasCheckConstraint("ck_product_ratings_stars", "stars BETWEEN 1 AND 5"));
     }
@@ -273,5 +275,15 @@ internal sealed class SellerAccountConfig : IEntityTypeConfiguration<SellerAccou
         b.HasIndex(x => x.Email).IsUnique();
         b.HasIndex(x => x.PageId);
         b.Property(x => x.Email).HasMaxLength(254);
+    }
+}
+
+internal sealed class PageFollowConfig : IEntityTypeConfiguration<PageFollow>
+{
+    public void Configure(EntityTypeBuilder<PageFollow> b)
+    {
+        b.HasIndex(x => new { x.UserId, x.PageId }).IsUnique();
+        b.HasIndex(x => x.PageId);
+        b.HasOne(x => x.Page).WithMany().HasForeignKey(x => x.PageId).OnDelete(DeleteBehavior.Cascade);
     }
 }
