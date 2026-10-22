@@ -194,7 +194,7 @@ public class PageSideTests(ApiFactory factory)
         Assert.Equal(orderId, row.GetProperty("order").GetProperty("id").GetString());
         Assert.Equal("new", row.GetProperty("order").GetProperty("status").GetString());
         Assert.Equal(2, row.GetProperty("order").GetProperty("items")[0].GetProperty("quantity").GetInt32());
-        Assert.False(string.IsNullOrEmpty(row.GetProperty("customerPhone").GetString()));
+        Assert.Equal(JsonValueKind.Null, row.GetProperty("customerPhone").ValueKind); // lists never carry the phone
 
         Assert.Equal(0, (await GetAsync(c, "/api/v1/pages/me/store-orders", other.App)).GetProperty("total").GetInt32());
         Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("GET", $"/api/v1/pages/me/store-orders/{orderId}", other.App))).StatusCode);

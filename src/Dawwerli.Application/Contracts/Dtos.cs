@@ -42,9 +42,10 @@ public sealed record RaisePriceDto(long MaxPrice);
 public sealed record OfferDto(Guid Id, Guid PageId, string PageName, string? Image, long Price, double Rating, int Deals, bool Trusted,
     int DeliveryHours, string Condition, string Note, string PhotoStamp, bool Sponsored, bool Hidden, DateTime CreatedAt);
 public sealed record OffersBoardDto(Guid RequestId, int MaxOffers, IReadOnlyList<OfferDto> Offers);
-public sealed record SelectDto(Guid OfferId);
+/// <summary>Choose an offer. Address and map pin are optional; the page sees them only inside the resulting order.</summary>
+public sealed record SelectDto(Guid OfferId, string? Address = null, double? Latitude = null, double? Longitude = null, string? LocationNote = null);
 public sealed record SelectionDto(Guid RequestId, Guid OrderId, string OrderNo, string ItemTitle, OfferDto Offer, DateTime SelectedAt,
-    string? PagePhone, int NoReplyAfterSec, string? WhatsAppLink);
+    string? PagePhone, int NoReplyAfterSec, string? WhatsAppLink, Guid? StoreOrderId = null);
 public sealed record NoReplyResultDto(OfferDto? Next);
 public sealed record SubmitOfferDto(long Price, int DeliveryHours, string Condition, string? Note, string PhotoKey);
 
@@ -75,7 +76,7 @@ public sealed record InboxItemDto(Guid Id, string Title, string? Image, string G
 public sealed record PageFeedQuery(int? CategoryId, string? Since, string? Sort, long? MinPrice, long? MaxPrice, int? Page, int? PageSize);
 public sealed record SellerOfferDto(Guid Id, Guid RequestId, string Title, string? Image, long Price, string State, Guid? OrderId, string? OrderNo,
     DateTime? ChosenAt, bool Contacted, bool GhostReported, int? SelectionNo, string Governorate, string? CustomerPhone, Guid? CustomerId,
-    DateTime? SentAt = null, string? Category = null, long? RequestMaxPrice = null);
+    DateTime? SentAt = null, string? Category = null, long? RequestMaxPrice = null, Guid? StoreOrderId = null);
 public sealed record LedgerDto(Guid Id, string Type, long Amount, string Note, DateTime At);
 public sealed record TopUpDto(Guid Id, string Method, string Ref, long Amount, DateTime At, string Status);
 public sealed record CreateTopUpDto(string Method, string TransactionRef, long Amount, string ReceiptKey);

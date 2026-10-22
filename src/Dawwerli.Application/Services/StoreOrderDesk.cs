@@ -12,7 +12,7 @@ namespace Dawwerli.Application.Services;
 /// Store-order handling for one page, shared by the web seller portal and the page app.
 /// Every query is scoped to the given page id, so a page only ever sees and moves its own orders.
 /// </summary>
-public sealed class StoreOrderDesk(StoreKit kit, Shared s, INotifier notifier, ITextCatalog texts, IPhoneProtector phones)
+public sealed class StoreOrderDesk(StoreKit kit, Shared s, INotifier notifier, ITextCatalog texts, IPhoneProtector phones, OfferOrderLink link)
 {
     private IAppDbContext Db => kit.Db;
 
@@ -26,9 +26,9 @@ public sealed class StoreOrderDesk(StoreKit kit, Shared s, INotifier notifier, I
     public static bool IsActive(StoreOrderStatus st) => Active.Contains(st);
 
     /// <param name="allowGroups">Also accept "active" / "closed" as the status filter.</param>
-    /// <param name="hideClosedPhone">Drop the customer phone once the order is finished.</param>
+    /// <remarks>List rows never carry the customer phone: it is shown only inside one order's details.</remarks>
     public async Task<Result<PagedDto<SellerOrderDto>>> ListAsync(Guid pageId, string? status, int? pageNo, int? size,
-        bool allowGroups, bool hideClosedPhone, CancellationToken ct)
+        bool allowGroups, CancellationToken ct)
     {
         var (p, n) = kit.Paging(pageNo, size);
         var q = kit.Orders.Where(o => o.PageId == pageId);
@@ -44,14 +44,15 @@ public sealed class StoreOrderDesk(StoreKit kit, Shared s, INotifier notifier, I
         var rows = await q.OrderByDescending(o => o.CreatedAt).ThenByDescending(o => o.Number).Skip((p - 1) * n).Take(n).ToListAsync(ct);
         var ids = rows.Select(r => r.CustomerUserId).Distinct().ToList();
         var users = await Db.Users.Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, ct);
-        return new PagedDto<SellerOrderDto>(rows.Select(o => ToSellerOrder(o, users.GetValueOrDefault(o.CustomerUserId), hideClosedPhone)).ToList(), total, p, n);
+        var deals = await kit.DealsAsync(rows, ct);
+        return new PagedDto<SellerOrderDto>(rows.Select(o => new SellerOrderDto(kit.ToDto(o, deals), users.GetValueOrDefault(o.CustomerUserId)?.Name, null)).ToList(), total, p, n);
     }
 
     public async Task<Result<SellerOrderDto>> GetAsync(Guid pageId, Guid id, bool hideClosedPhone, CancellationToken ct)
     {
         var o = await kit.Orders.FirstOrDefaultAsync(x => x.Id == id && x.PageId == pageId, ct);
         if (o is null) return StoreErrors.OrderNotFound;
-        return ToSellerOrder(o, await Db.Users.FirstOrDefaultAsync(u => u.Id == o.CustomerUserId, ct), hideClosedPhone);
+        return await DetailsAsync(o, hideClosedPhone, ct);
     }
 
     public async Task<Result<SellerOrderDto>> MoveAsync(Guid pageId, Guid actorId, Guid id, SetOrderStatusDto dto, bool hideClosedPhone, CancellationToken ct)
@@ -62,22 +63,49 @@ public sealed class StoreOrderDesk(StoreKit kit, Shared s, INotifier notifier, I
         var o = await kit.Orders.FirstOrDefaultAsync(x => x.Id == id && x.PageId == pageId, ct);
         if (o is null) return StoreErrors.OrderNotFound;
         if (!StoreOrderFlow.SellerCanMove(o.Status, to)) return StoreErrors.BadTransition;
+        if (OrderPin.Check(null, null, dto.Reason) is { } leak) return leak;
+        Courier? courier = null;
+        if (to == StoreOrderStatus.OutForDelivery && dto.CourierId is { } cid)
+        {
+            courier = await Db.Couriers.FirstOrDefaultAsync(c => c.Id == cid && c.PageId == pageId && c.DeletedAt == null, ct);
+            if (courier is null) return Error.NotFound("courier");
+            if (!courier.Active) return Error.Rule("courier.inactive", "هذا المندوب موقوف، فعّله أو اختار غيره");
+        }
+        if (o.Kind == StoreOrderKind.Offer && await link.OnPageMoveAsync(o, to, ct) is { } dealError) return dealError;
         o.Record(to, s.Now);
         o.StatusReason = dto.Reason?.Trim();
-        if (StoreOrderFlow.RestoresStock(to)) await kit.RestoreStockAsync(o, ct);
+        if (courier is not null)
+        {
+            o.CourierId = courier.Id;
+            o.CourierName = courier.Name;
+            o.CourierPhone = courier.Phone;
+        }
+        if (o.Kind == StoreOrderKind.Store && StoreOrderFlow.RestoresStock(to)) await kit.RestoreStockAsync(o, ct);
         Db.AuditLogs.Add(new AuditLog { ActorUserId = actorId, Action = "store_order.status", EntityName = nameof(StoreOrder),
-            EntityId = o.Id.ToString(), Data = JsonSerializer.Serialize(new { to = to.Code() }) });
+            EntityId = o.Id.ToString(), Data = JsonSerializer.Serialize(new { to = to.Code(), courier = courier?.Id }) });
         await Db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
-        await notifier.NotifyAsync(o.CustomerUserId, texts.Get("store.status.title", Shared.OrderNo(o.Number)),
-            texts.Get($"store.status.{to.Code()}"), $"/store/orders/{o.Id}", ct);
-        return ToSellerOrder(o, await Db.Users.FirstOrDefaultAsync(u => u.Id == o.CustomerUserId, ct), hideClosedPhone);
+        var body = to switch
+        {
+            StoreOrderStatus.OutForDelivery when o.CourierName is not null => texts.Get("store.courier.body", o.CourierName, o.CourierPhone ?? ""),
+            StoreOrderStatus.Delivered when o.Kind == StoreOrderKind.Offer => texts.Get("store.inspect.body"),
+            _ => texts.Get($"store.status.{to.Code()}"),
+        };
+        await notifier.NotifyAsync(o.CustomerUserId, texts.Get("store.status.title", Shared.OrderNo(o.Number)), body, $"/store/orders/{o.Id}", ct);
+        if (o.Kind == StoreOrderKind.Offer && to is StoreOrderStatus.Rejected or StoreOrderStatus.Cancelled) await link.NotifyReopenedAsync(o, ct);
+        return await DetailsAsync(o, hideClosedPhone, ct);
     }
 
-    private SellerOrderDto ToSellerOrder(StoreOrder o, User? u, bool hideClosedPhone)
+    /// <summary>
+    /// The one place the customer phone is exposed to a page: the details of an order that belongs to that page
+    /// (every caller has already scoped the order to the page id).
+    /// </summary>
+    private async Task<SellerOrderDto> DetailsAsync(StoreOrder o, bool hideClosedPhone, CancellationToken ct)
     {
+        var u = await Db.Users.FirstOrDefaultAsync(x => x.Id == o.CustomerUserId, ct);
+        var deal = o.OfferOrderId is { } did ? await Db.Orders.FirstOrDefaultAsync(x => x.Id == did, ct) : null;
         var showPhone = u is not null && !string.IsNullOrEmpty(u.PhoneEncrypted) && (!hideClosedPhone || IsActive(o.Status));
-        return new(kit.ToDto(o), u?.Name, showPhone ? phones.Decrypt(u!.PhoneEncrypted) : null);
+        return new(kit.ToDto(o, deal), u?.Name, showPhone ? phones.Decrypt(u!.PhoneEncrypted) : null);
     }
 }
 
@@ -89,7 +117,7 @@ public sealed class PageStoreOrderService(StoreOrderDesk desk, Shared s)
         var page = await s.MyPageAsync(ct);
         if (page is null) return Errors.NotPage;
         if (pageNo is < 1 || size is < 1) return Error.Validation("paging.invalid", "Page and page size start at 1");
-        return await desk.ListAsync(page.Id, status, pageNo, size, allowGroups: true, hideClosedPhone: true, ct);
+        return await desk.ListAsync(page.Id, status, pageNo, size, allowGroups: true, ct);
     }
 
     public async Task<Result<SellerOrderDto>> GetAsync(Guid id, CancellationToken ct)

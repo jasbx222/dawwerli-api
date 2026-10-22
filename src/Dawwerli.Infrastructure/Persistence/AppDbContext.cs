@@ -50,6 +50,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IClock 
     public DbSet<StoreOrderEvent> StoreOrderEvents => Set<StoreOrderEvent>();
     public DbSet<SellerAccount> SellerAccounts => Set<SellerAccount>();
     public DbSet<PageFollow> PageFollows => Set<PageFollow>();
+    public DbSet<Courier> Couriers => Set<Courier>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default) =>
         Database.CurrentTransaction is null ? Database.BeginTransactionAsync(ct) : Task.FromResult<IDbContextTransaction>(new NoopTransaction());

@@ -228,8 +228,9 @@ public sealed class PageService(Shared s, IPhoneProtector phones, IOptions<Regio
         var orders = await Db.Orders.Where(o => ids.Contains(o.OfferId)).ToListAsync(ct);
         var selectionNos = await Db.LedgerEntries.Where(e => e.PageId == page.Id && (e.Type == LedgerType.FreeSelection || e.Type == LedgerType.SelectionFee))
             .OrderBy(e => e.CreatedAt).Select(e => e.OrderId).ToListAsync(ct);
-        var customers = orders.Select(o => o.CustomerId).Distinct().ToList();
-        var phoneMap = await Db.Users.Where(u => customers.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.PhoneEncrypted, ct);
+        // Customer phones are never listed: the page opens the linked store order to see the phone in that order's details.
+        var orderIds = orders.Select(o => (Guid?)o.Id).ToList();
+        var storeOrders = await Db.StoreOrders.Where(x => orderIds.Contains(x.OfferOrderId)).ToDictionaryAsync(x => x.OfferOrderId!.Value, x => x.Id, ct);
         IReadOnlyList<SellerOfferDto> list = offers.Select(o =>
         {
             var order = orders.Where(x => x.OfferId == o.Id).MaxBy(x => x.SelectedAt);
@@ -241,12 +242,12 @@ public sealed class PageService(Shared s, IPhoneProtector phones, IOptions<Regio
                 OfferStatus.Withdrawn => "withdrawn",
                 _ => "closed",
             };
-            var phone = order is { PhoneVisible: true } && phoneMap.TryGetValue(order.CustomerId, out var enc) && enc != "" ? phones.Decrypt(enc) : null;
             var idx = order is null ? -1 : selectionNos.IndexOf(order.Id);
             return new SellerOfferDto(o.Id, o.RequestId, o.Request!.Title, s.Url(o.PhotoKey), o.Price, state, order?.Id,
                 order is null ? null : Shared.OrderNo(order.Number), order?.SelectedAt, order?.ContactedAt is not null,
-                order?.GhostReportedAt is not null, idx < 0 ? null : idx + 1, o.Request.Governorate!.Name, phone, order?.CustomerId,
-                o.CreatedAt, o.Request.Category?.Name, o.Request.MaxPrice);
+                order?.GhostReportedAt is not null, idx < 0 ? null : idx + 1, o.Request.Governorate!.Name, null, order?.CustomerId,
+                o.CreatedAt, o.Request.Category?.Name, o.Request.MaxPrice,
+                order is not null && storeOrders.TryGetValue(order.Id, out var soId) ? soId : null);
         }).ToList();
         if (only is not null && only != "incoming") return Result<IReadOnlyList<SellerOfferDto>>.Ok(list);
         var offered = offers.Select(o => o.RequestId).ToHashSet();

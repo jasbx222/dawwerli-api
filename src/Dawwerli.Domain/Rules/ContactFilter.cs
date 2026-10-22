@@ -32,6 +32,9 @@ public static partial class ContactFilter
         return Phone().IsMatch(n) || Link().IsMatch(n) || Handle().IsMatch(n);
     }
 
+    /// <summary>Shown to the user when <see cref="HasContact"/> rejects a text.</summary>
+    public const string ArabicMessage = "ممنوع تكتب رقم تلفون أو يوزر (@) أو رابط. كل التواصل والاتفاق يصير داخل دورلي.";
+
     public static string? FindBanned(string? text, IEnumerable<string> banned)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;

@@ -64,10 +64,27 @@ public sealed class StoreKit(Shared s, IOptions<StoreOptions> options)
 
     public IQueryable<StoreOrder> Orders => Db.StoreOrders.Include(o => o.Items).Include(o => o.History).Include(o => o.Page).AsSplitQuery();
 
-    public StoreOrderDto ToDto(StoreOrder o) => new(o.Id, Shared.OrderNo(o.Number), o.PageId, o.Page?.Name ?? "", o.Status.Code(),
+    public StoreOrderDto ToDto(StoreOrder o, Order? deal = null) => new(o.Id, Shared.OrderNo(o.Number), o.PageId, o.Page?.Name ?? "", o.Status.Code(),
         o.PaymentMethod.Code(), o.PaymentStatus.Code(), o.Address, o.GovernorateId, o.Note, o.Subtotal, o.Commission, o.StatusReason,
         o.Items.Select(i => new StoreOrderItemDto(i.ProductId, i.Name, i.UnitPrice, i.Quantity, s.Url(i.ImageKey))).ToList(), o.CreatedAt, o.StatusChangedAt,
-        o.History.OrderBy(e => e.At).Select(e => new StoreOrderEventDto(e.Status.Code(), e.At)).ToList());
+        o.History.OrderBy(e => e.At).Select(e => new StoreOrderEventDto(e.Status.Code(), e.At)).ToList(),
+        o.Kind.Code(), o.RequestId, o.OfferOrderId,
+        o.Latitude is { } lat && o.Longitude is { } lng ? new OrderPinDto(lat, lng, o.LocationNote) : null,
+        o.CourierName is { } cn ? new OrderCourierDto(cn, o.CourierPhone ?? "") : null,
+        deal?.Status.Code(), deal?.Answer?.Code(),
+        deal is { Status: OrderStatus.InPurchase or OrderStatus.AwaitingDelivery } && o.Status is StoreOrderStatus.OutForDelivery or StoreOrderStatus.Delivered,
+        deal is { Status: OrderStatus.Delivered });
+
+    /// <summary>Offer orders carry the offer-side deal (inspect / mismatch / rating state) next to the store lifecycle.</summary>
+    public async Task<Dictionary<Guid, Order>> DealsAsync(IEnumerable<StoreOrder> rows, CancellationToken ct)
+    {
+        var ids = rows.Where(o => o.OfferOrderId is not null).Select(o => o.OfferOrderId!.Value).Distinct().ToList();
+        if (ids.Count == 0) return [];
+        return await Db.Orders.Where(o => ids.Contains(o.Id)).ToDictionaryAsync(o => o.Id, ct);
+    }
+
+    public StoreOrderDto ToDto(StoreOrder o, IReadOnlyDictionary<Guid, Order> deals) =>
+        ToDto(o, o.OfferOrderId is { } id && deals.TryGetValue(id, out var d) ? d : null);
 
     public SellerProductDto ToSellerDto(Product p) => new(p.Id, p.Name, p.Description, p.Price, p.ImageKeys, p.ImageKeys.Select(s.Url).ToList(),
         p.CategoryId, p.Stock, p.Active, p.HiddenByAdmin, p.Available, p.CreatedAt, p.Rating, p.RatingCount);

@@ -43,6 +43,7 @@ public interface IAppDbContext
     DbSet<ProductFavorite> ProductFavorites { get; }
     DbSet<ProductRating> ProductRatings { get; }
     DbSet<PageFollow> PageFollows { get; }
+    DbSet<Courier> Couriers { get; }
     DbSet<StoreOrder> StoreOrders { get; }
     DbSet<StoreOrderItem> StoreOrderItems { get; }
     DbSet<StoreOrderEvent> StoreOrderEvents { get; }

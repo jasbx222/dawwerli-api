@@ -379,6 +379,54 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.ToTable("categories", (string)null);
                 });
 
+            modelBuilder.Entity("Dawwerli.Domain.Entities.Courier", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("boolean")
+                        .HasColumnName("active");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("PageId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("page_id");
+
+                    b.Property<string>("Phone")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("phone");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_couriers");
+
+                    b.HasIndex("PageId")
+                        .HasDatabaseName("ix_couriers_page_id");
+
+                    b.ToTable("couriers", (string)null);
+                });
+
             modelBuilder.Entity("Dawwerli.Domain.Entities.Device", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1750,6 +1798,20 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("double precision")
                         .HasColumnName("commission_percent");
 
+                    b.Property<Guid?>("CourierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("courier_id");
+
+                    b.Property<string>("CourierName")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("courier_name");
+
+                    b.Property<string>("CourierPhone")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("courier_phone");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1762,6 +1824,23 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("governorate_id");
 
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<double?>("Latitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("latitude");
+
+                    b.Property<string>("LocationNote")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("location_note");
+
+                    b.Property<double?>("Longitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("longitude");
+
                     b.Property<string>("Note")
                         .HasColumnType("text")
                         .HasColumnName("note");
@@ -1769,6 +1848,10 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.Property<long>("Number")
                         .HasColumnType("bigint")
                         .HasColumnName("number");
+
+                    b.Property<Guid?>("OfferOrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("offer_order_id");
 
                     b.Property<Guid>("PageId")
                         .HasColumnType("uuid")
@@ -1785,6 +1868,10 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.Property<int>("PaymentStatus")
                         .HasColumnType("integer")
                         .HasColumnName("payment_status");
+
+                    b.Property<Guid?>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer")
@@ -1812,6 +1899,11 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.HasIndex("Number")
                         .IsUnique()
                         .HasDatabaseName("ix_store_orders_number");
+
+                    b.HasIndex("OfferOrderId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_store_orders_offer_order_id")
+                        .HasFilter("offer_order_id IS NOT NULL");
 
                     b.HasIndex("CustomerUserId", "CreatedAt")
                         .HasDatabaseName("ix_store_orders_customer_user_id_created_at");

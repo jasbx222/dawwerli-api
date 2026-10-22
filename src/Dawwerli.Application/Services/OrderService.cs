@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Dawwerli.Application.Services;
 
-public sealed class OrderService(Shared s, TrustService trust, INotifier notifier, ITextCatalog texts)
+public sealed class OrderService(Shared s, TrustService trust, INotifier notifier, ITextCatalog texts, OfferOrderLink link)
 {
     private IAppDbContext Db => s.Db;
 
@@ -53,6 +53,11 @@ public sealed class OrderService(Shared s, TrustService trust, INotifier notifie
         if (!res.IsSuccess) return res.Error!;
         var o = res.Value!;
         if (o.Status is not (OrderStatus.InPurchase or OrderStatus.AwaitingDelivery)) return Error.Conflict("order.state", "Already answered");
+        // Inspect-before-pay happens at the door: the customer answers once the page sent the order out.
+        var so = await link.ForDealAsync(o.Id, ct);
+        if (so is not null && so.Status is not (StoreOrderStatus.OutForDelivery or StoreOrderStatus.Delivered))
+            return Error.Conflict("order.not_out", "تكدر تأكد الاستلام بس لمن الصفحة تطلّع الطلب للتوصيل");
+        if (so is not null && answer == DeliveryAnswer.Received && so.Status != StoreOrderStatus.Delivered) so.Record(StoreOrderStatus.Delivered, s.Now);
         o.Answer = answer;
         o.AnsweredAt = s.Now;
         o.Status = answer switch
@@ -100,6 +105,7 @@ public sealed class OrderService(Shared s, TrustService trust, INotifier notifie
         if (o.Status != OrderStatus.InPurchase) return Error.Conflict("order.state", "Order is not in purchase");
         o.ContactedAt = s.Now;
         o.Status = OrderStatus.AwaitingDelivery;
+        if (await link.ForDealAsync(o.Id, ct) is { Status: StoreOrderStatus.New } so) so.Record(StoreOrderStatus.Accepted, s.Now);
         await Db.SaveChangesAsync(ct);
         return Result.Ok();
     }

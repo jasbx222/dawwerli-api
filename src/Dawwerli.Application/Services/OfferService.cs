@@ -9,7 +9,7 @@ using Microsoft.Extensions.Options;
 namespace Dawwerli.Application.Services;
 
 public sealed class OfferService(Shared s, WalletService wallet, TrustService trust, INotifier notifier, IRealtime realtime,
-    ITextCatalog texts, IPhoneProtector phones, IOptions<RegionOptions> region)
+    ITextCatalog texts, IPhoneProtector phones, IOptions<RegionOptions> region, OfferOrderLink link)
 {
     private IAppDbContext Db => s.Db;
     private readonly TimeZoneInfo _tz = TimeZoneInfo.FindSystemTimeZoneById(region.Value.TimeZone);
@@ -111,6 +111,7 @@ public sealed class OfferService(Shared s, WalletService wallet, TrustService tr
 
     public async Task<Result<SelectionDto>> SelectAsync(Guid requestId, SelectDto dto, CancellationToken ct)
     {
+        if (OrderPin.Check(dto.Latitude, dto.Longitude, dto.Address, dto.LocationNote) is { } pinError) return pinError;
         var rules = await s.Rules(ct);
         await using var tx = await Db.BeginTransactionAsync(ct);
         await Db.LockRequestAsync(requestId, ct);
@@ -138,10 +139,13 @@ public sealed class OfferService(Shared s, WalletService wallet, TrustService tr
             .ExecuteUpdateAsync(x => x.SetProperty(o => o.Status, OfferStatus.NotSelected), ct);
         offer.Status = OfferStatus.Selected;
         r.Status = RequestStatus.Selected;
+        // The deal runs through the page's order list like any store order (New -> Accepted -> OutForDelivery -> Delivered).
+        var storeOrder = link.Open(order, offer, r, dto);
         await Db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
 
-        await notifier.NotifyAsync(page.UserId, texts.Get("page.chosen.title"), texts.Get("page.chosen.body", Shared.OrderNo(order.Number)), "/seller/offers", ct);
+        await notifier.NotifyAsync(page.UserId, texts.Get("store.offerOrder.title", Shared.OrderNo(order.Number)), texts.Get("store.offerOrder.body"),
+            $"/seller/store/orders/{storeOrder.Id}", ct);
         var losers = await Db.Offers.Where(o => o.RequestId == r.Id && o.Status == OfferStatus.NotSelected).Select(o => o.Page!.UserId).ToListAsync(ct);
         foreach (var u in losers) await notifier.NotifyAsync(u, texts.Get("page.notChosen.title"), texts.Get("page.notChosen.body", r.Title), "/seller/offers", ct);
         await realtime.RequestChangedAsync(r.Id, ct);
@@ -161,15 +165,12 @@ public sealed class OfferService(Shared s, WalletService wallet, TrustService tr
         var offer = await Db.Offers.Include(o => o.Page).ThenInclude(p => p!.User).FirstAsync(o => o.Id == order.OfferId, ct);
         var r = await Db.Requests.FirstAsync(x => x.Id == order.RequestId, ct);
         var no = Shared.OrderNo(order.Number);
-        string? phone = null, link = null;
-        if (order.PhoneVisible && offer.Page!.User is { PhoneEncrypted: not "" } pu)
-        {
-            phone = phones.Decrypt(pu.PhoneEncrypted);
-            var text = Uri.EscapeDataString(texts.Get("whatsapp.selection", no, r.Title, offer.Price));
-            link = $"{region.Value.WhatsAppBaseUrl}{new string(phone.Where(char.IsDigit).ToArray())}?text={text}";
-        }
+        // The page's phone (never the customer's). Coordination now happens inside the order, so no WhatsApp hand-off link.
+        string? phone = null;
+        if (order.PhoneVisible && offer.Page!.User is { PhoneEncrypted: not "" } pu) phone = phones.Decrypt(pu.PhoneEncrypted);
+        var storeOrderId = await Db.StoreOrders.Where(x => x.OfferOrderId == order.Id).Select(x => (Guid?)x.Id).FirstOrDefaultAsync(ct);
         return new SelectionDto(r.Id, order.Id, no, r.Title, s.ToDto(offer, offer.Page!, rules), order.SelectedAt, phone,
-            rules.ReplyWindowMin * 60, link);
+            rules.ReplyWindowMin * 60, null, storeOrderId);
     }
 
     public async Task<Result<NoReplyResultDto>> NoReplyAsync(Guid orderId, CancellationToken ct)
@@ -194,6 +195,11 @@ public sealed class OfferService(Shared s, WalletService wallet, TrustService tr
         var r = await Db.Requests.FirstAsync(x => x.Id == order.RequestId, ct);
         order.Status = OrderStatus.NoReply;
         wallet.ReleaseSelection(order.Page!, order);
+        if (await link.ForDealAsync(order.Id, ct) is { Status: StoreOrderStatus.New } so)
+        {
+            so.Record(StoreOrderStatus.Cancelled, s.Now);
+            so.StatusReason = texts.Get("store.noReply.reason");
+        }
         await trust.AddPageMarkAsync(order.Page!, PageMarkKind.NoReply, order.Id, texts.Get("mark.noReply", Shared.OrderNo(order.Number)), rules, ct);
         await Db.Offers.Where(o => o.Id == order.OfferId).ExecuteUpdateAsync(x => x.SetProperty(o => o.Status, OfferStatus.Closed), ct);
         await Db.Offers.Where(o => o.RequestId == r.Id && o.Status == OfferStatus.NotSelected)

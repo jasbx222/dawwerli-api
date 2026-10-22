@@ -15,7 +15,7 @@ public static class OfferPolicy
         if (r.OffersCount >= rules.MaxOffers) return Error.Conflict("offer.full", "Request already has the maximum offers");
         if (price <= 0) return Error.Validation("offer.price", "Price must be positive");
         if (price > r.MaxPrice) return Error.Rule("offer.over_max", "Price is above the customer's max price");
-        if (ContactFilter.HasContact(note)) return Error.Rule("offer.contact", "Offer text has contact info");
+        if (ContactFilter.HasContact(note)) return Error.Rule("offer.contact", ContactFilter.ArabicMessage);
         if (now < r.EarlyUntil)
         {
             if (!earlyPage) return Error.Conflict("offer.early_window", "Request is still in the early-access window");
