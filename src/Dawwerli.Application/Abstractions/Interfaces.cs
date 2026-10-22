@@ -40,6 +40,8 @@ public interface IAppDbContext
     DbSet<SupportMessage> SupportMessages { get; }
     DbSet<Product> Products { get; }
     DbSet<CartItem> CartItems { get; }
+    DbSet<ProductFavorite> ProductFavorites { get; }
+    DbSet<ProductRating> ProductRatings { get; }
     DbSet<StoreOrder> StoreOrders { get; }
     DbSet<StoreOrderItem> StoreOrderItems { get; }
     DbSet<SellerAccount> SellerAccounts { get; }

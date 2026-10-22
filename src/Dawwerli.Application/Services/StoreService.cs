@@ -50,7 +50,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         var rows = await inStock.Where(p => ids.Contains(p.PageId)).OrderByDescending(p => p.CreatedAt).ToListAsync(ct);
         var byPage = rows.GroupBy(p => p.PageId).ToDictionary(g => g.Key, g => g.Take(each).ToList());
         return top.SelectMany(pg => byPage.GetValueOrDefault(pg.Id, []).Select(p => new TopRatedProductDto(p.Id, pg.Id, pg.Name, pg.Rating, pg.RatingCount,
-            p.Name, p.Description, p.Price, s.Url(p.ImageKeys.FirstOrDefault()), p.Stock, p.Available))).ToList();
+            p.Name, p.Description, p.Price, s.Url(p.ImageKeys.FirstOrDefault()), p.Stock, p.Available, p.Rating, p.RatingCount))).ToList();
     }
 
     public async Task<Result<ProductDetailsDto>> ProductAsync(Guid id, CancellationToken ct)
@@ -58,7 +58,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         var x = await Visible.Include(p => p.Page).FirstOrDefaultAsync(p => p.Id == id, ct);
         if (x?.Page is null || !x.Page.IsActive(s.Now)) return StoreErrors.ProductNotFound;
         return new ProductDetailsDto(x.Id, x.PageId, x.Page.Name, x.Name, x.Description, x.Price, x.ImageKeys.Select(s.Url).ToList(),
-            x.CategoryId, x.Stock, x.Available);
+            x.CategoryId, x.Stock, x.Available, x.Rating, x.RatingCount);
     }
 
     public async Task<Result> ReportAsync(Guid productId, ReportProductDto dto, CancellationToken ct)
@@ -71,6 +71,90 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         await Db.SaveChangesAsync(ct);
         return Result.Ok();
     }
+
+    // ---------- favorites ----------
+
+    public async Task<IReadOnlyList<FavoriteProductDto>> FavoritesAsync(CancellationToken ct)
+    {
+        var now = s.Now;
+        var rows = await Db.ProductFavorites.Include(f => f.Product).ThenInclude(p => p!.Page)
+            .Where(f => f.UserId == Me && f.Product!.DeletedAt == null)
+            .OrderByDescending(f => f.CreatedAt).ToListAsync(ct);
+        return rows.Select(f =>
+        {
+            var p = f.Product!;
+            var available = p.Available && p.Page is not null && p.Page.IsActive(now);
+            return new FavoriteProductDto(p.Id, p.PageId, p.Page?.Name ?? "", p.Name, p.Description, p.Price, s.Url(p.ImageKeys.FirstOrDefault()),
+                p.Stock, available, p.Rating, p.RatingCount, f.CreatedAt);
+        }).ToList();
+    }
+
+    /// <summary>Idempotent: hearting twice keeps one row.</summary>
+    public async Task<Result> AddFavoriteAsync(Guid productId, CancellationToken ct)
+    {
+        if (!await Visible.AnyAsync(p => p.Id == productId, ct)) return StoreErrors.ProductNotFound;
+        if (await Db.ProductFavorites.AnyAsync(f => f.UserId == Me && f.ProductId == productId, ct)) return Result.Ok();
+        Db.ProductFavorites.Add(new ProductFavorite { UserId = Me, ProductId = productId });
+        try { await Db.SaveChangesAsync(ct); }
+        catch (DbUpdateException) { /* a parallel tap won the unique index; same outcome */ }
+        return Result.Ok();
+    }
+
+    public async Task RemoveFavoriteAsync(Guid productId, CancellationToken ct) =>
+        await Db.ProductFavorites.Where(f => f.UserId == Me && f.ProductId == productId).ExecuteDeleteAsync(ct);
+
+    // ---------- ratings ----------
+
+    /// <summary>Only customers who received the product (a delivered store order containing it) can rate it.</summary>
+    private Task<bool> ReceivedAsync(Guid productId, CancellationToken ct) =>
+        Db.StoreOrders.AnyAsync(o => o.CustomerUserId == Me && o.Status == StoreOrderStatus.Delivered && o.Items.Any(i => i.ProductId == productId), ct);
+
+    public async Task<Result<PagedDto<ProductReviewDto>>> ReviewsAsync(Guid productId, int? pageNo, int? size, CancellationToken ct)
+    {
+        if (!await Visible.AnyAsync(p => p.Id == productId, ct)) return StoreErrors.ProductNotFound;
+        var (p, n) = kit.Paging(pageNo, size);
+        var q = Db.ProductRatings.Where(r => r.ProductId == productId);
+        var total = await q.CountAsync(ct);
+        var rows = await q.OrderByDescending(r => r.UpdatedAt).Skip((p - 1) * n).Take(n)
+            .Select(r => new { r.Id, r.User!.Name, r.Stars, r.Comment, r.UpdatedAt }).ToListAsync(ct);
+        return new PagedDto<ProductReviewDto>(rows.Select(r => new ProductReviewDto(r.Id, FirstName(r.Name), r.Stars, r.Comment, r.UpdatedAt)).ToList(), total, p, n);
+    }
+
+    public async Task<Result<MyProductRatingDto>> MyRatingAsync(Guid productId, CancellationToken ct)
+    {
+        if (!await Db.Products.AnyAsync(p => p.Id == productId && p.DeletedAt == null, ct)) return StoreErrors.ProductNotFound;
+        var mine = await Db.ProductRatings.FirstOrDefaultAsync(r => r.ProductId == productId && r.UserId == Me, ct);
+        return new MyProductRatingDto(await ReceivedAsync(productId, ct), mine?.Stars, mine?.Comment);
+    }
+
+    /// <summary>Creates or edits the customer's rating, then refreshes the product's average and count.</summary>
+    public async Task<Result<ProductRatingSummaryDto>> RateAsync(Guid productId, RateProductDto dto, CancellationToken ct)
+    {
+        if (dto.Stars is < 1 or > 5) return Error.Validation("rating.stars", "Stars must be between 1 and 5");
+        var comment = dto.Comment?.Trim() ?? "";
+        if (comment.Length > kit.Options.RatingCommentMaxLength)
+            return new Error(ErrorKind.Validation, "rating.comment", "Comment too long", new Dictionary<string, object?> { ["max"] = kit.Options.RatingCommentMaxLength });
+        if (await kit.BannedWordAsync(ct, comment) is { } word)
+            return new Error(ErrorKind.BusinessRule, "rating.prohibited", "Text contains a banned word", new Dictionary<string, object?> { ["word"] = word });
+        if (!await Db.Products.AnyAsync(p => p.Id == productId && p.DeletedAt == null, ct)) return StoreErrors.ProductNotFound;
+        if (!await ReceivedAsync(productId, ct)) return Error.Rule("rating.not_received", "You can rate a product after you receive it");
+
+        var mine = await Db.ProductRatings.FirstOrDefaultAsync(r => r.ProductId == productId && r.UserId == Me, ct);
+        if (mine is null) Db.ProductRatings.Add(mine = new ProductRating { ProductId = productId, UserId = Me });
+        mine.Stars = dto.Stars;
+        mine.Comment = comment;
+        await Db.SaveChangesAsync(ct);
+
+        var stats = await Db.ProductRatings.Where(r => r.ProductId == productId)
+            .GroupBy(r => r.ProductId).Select(g => new { Avg = g.Average(r => (double)r.Stars), Count = g.Count() }).FirstAsync(ct);
+        var rating = Math.Round(stats.Avg, 1, MidpointRounding.AwayFromZero);
+        await Db.Products.Where(p => p.Id == productId)
+            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Rating, rating).SetProperty(p => p.RatingCount, stats.Count), ct);
+        return new ProductRatingSummaryDto(rating, stats.Count, mine.Stars, mine.Comment);
+    }
+
+    private static string FirstName(string? name) =>
+        string.IsNullOrWhiteSpace(name) ? "زبون" : name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
 
     // ---------- cart ----------
 

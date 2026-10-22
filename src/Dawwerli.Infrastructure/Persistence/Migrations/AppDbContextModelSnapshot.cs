@@ -1141,6 +1141,14 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("price");
 
+                    b.Property<double>("Rating")
+                        .HasColumnType("double precision")
+                        .HasColumnName("rating");
+
+                    b.Property<int>("RatingCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("rating_count");
+
                     b.Property<int>("Stock")
                         .HasColumnType("integer")
                         .HasColumnName("stock");
@@ -1164,6 +1172,97 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.ToTable("products", null, t =>
                         {
                             t.HasCheckConstraint("ck_products_stock", "stock >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.ProductFavorite", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_product_favorites");
+
+                    b.HasIndex("ProductId")
+                        .HasDatabaseName("ix_product_favorites_product_id");
+
+                    b.HasIndex("UserId", "CreatedAt")
+                        .HasDatabaseName("ix_product_favorites_user_id_created_at");
+
+                    b.HasIndex("UserId", "ProductId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_product_favorites_user_id_product_id");
+
+                    b.ToTable("product_favorites", (string)null);
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.ProductRating", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Comment")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("comment");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("product_id");
+
+                    b.Property<int>("Stars")
+                        .HasColumnType("integer")
+                        .HasColumnName("stars");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_product_ratings");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("ix_product_ratings_user_id");
+
+                    b.HasIndex("ProductId", "UpdatedAt")
+                        .HasDatabaseName("ix_product_ratings_product_id_updated_at");
+
+                    b.HasIndex("ProductId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_product_ratings_product_id_user_id");
+
+                    b.ToTable("product_ratings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_product_ratings_stars", "stars BETWEEN 1 AND 5");
                         });
                 });
 
@@ -2064,6 +2163,39 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_products_pages_page_id");
 
                     b.Navigation("Page");
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.ProductFavorite", b =>
+                {
+                    b.HasOne("Dawwerli.Domain.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_favorites_products_product_id");
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.ProductRating", b =>
+                {
+                    b.HasOne("Dawwerli.Domain.Entities.Product", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_ratings_products_product_id");
+
+                    b.HasOne("Dawwerli.Domain.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_product_ratings_users_user_id");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Dawwerli.Domain.Entities.Request", b =>

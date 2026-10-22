@@ -19,9 +19,31 @@ public class Product : Entity
     public bool HiddenByAdmin { get; set; }
     public DateTime? DeletedAt { get; set; }
     public uint Version { get; set; }
+    /// <summary>Average of <see cref="ProductRating.Stars"/>, kept in step on every rating change.</summary>
+    public double Rating { get; set; }
+    public int RatingCount { get; set; }
 
     public bool Visible => Active && !HiddenByAdmin && DeletedAt == null;
     public bool Available => Visible && Stock > 0;
+}
+
+/// <summary>A product the customer hearted.</summary>
+public class ProductFavorite : Entity
+{
+    public Guid UserId { get; set; }
+    public Guid ProductId { get; set; }
+    public Product? Product { get; set; }
+}
+
+/// <summary>A customer's 1–5 star rating of a product they received; one per customer per product, editable.</summary>
+public class ProductRating : Entity
+{
+    public Guid ProductId { get; set; }
+    public Product? Product { get; set; }
+    public Guid UserId { get; set; }
+    public User? User { get; set; }
+    public int Stars { get; set; }
+    public string Comment { get; set; } = "";
 }
 
 /// <summary>One line of a customer's cart. A cart only ever holds products of one page.</summary>

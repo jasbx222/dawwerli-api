@@ -8,12 +8,24 @@ public sealed record SellerMeDto(Guid AccountId, string Email, Guid PageId, stri
 // Products
 public sealed record UpsertProductDto(string Name, string? Description, long Price, string[] ImageKeys, int CategoryId, int Stock, bool Active = true);
 public sealed record SellerProductDto(Guid Id, string Name, string Description, long Price, IReadOnlyList<string> ImageKeys, IReadOnlyList<string?> ImageUrls,
-    int CategoryId, int Stock, bool Active, bool HiddenByAdmin, bool Available, DateTime CreatedAt);
-public sealed record ProductCardDto(Guid Id, string Name, long Price, string? ImageUrl, bool Available);
+    int CategoryId, int Stock, bool Active, bool HiddenByAdmin, bool Available, DateTime CreatedAt, double Rating = 0, int RatingCount = 0);
+public sealed record ProductCardDto(Guid Id, string Name, long Price, string? ImageUrl, bool Available,
+    string Description = "", int Stock = 0, double Rating = 0, int RatingCount = 0);
 public sealed record ProductDetailsDto(Guid Id, Guid PageId, string PageName, string Name, string Description, long Price,
-    IReadOnlyList<string?> ImageUrls, int CategoryId, int Stock, bool Available);
+    IReadOnlyList<string?> ImageUrls, int CategoryId, int Stock, bool Available, double Rating = 0, int RatingCount = 0);
 public sealed record TopRatedProductDto(Guid Id, Guid PageId, string PageName, double PageRating, int PageRatingCount, string Name, string Description,
-    long Price, string? ImageUrl, int Stock, bool Available);
+    long Price, string? ImageUrl, int Stock, bool Available, double Rating = 0, int RatingCount = 0);
+
+// Favorites
+/// <summary>Hidden or switched-off products stay listed with Available = false; deleted ones drop out.</summary>
+public sealed record FavoriteProductDto(Guid Id, Guid PageId, string PageName, string Name, string Description, long Price, string? ImageUrl,
+    int Stock, bool Available, double Rating, int RatingCount, DateTime FavoritedAt);
+
+// Ratings
+public sealed record RateProductDto(int Stars, string? Comment);
+public sealed record ProductReviewDto(Guid Id, string CustomerName, int Stars, string Comment, DateTime UpdatedAt);
+public sealed record MyProductRatingDto(bool CanRate, int? Stars, string? Comment);
+public sealed record ProductRatingSummaryDto(double Rating, int RatingCount, int Stars, string Comment);
 public sealed record ReportProductDto(string Reason, string? Text);
 
 // Cart

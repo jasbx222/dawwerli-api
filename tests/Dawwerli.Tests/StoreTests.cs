@@ -316,4 +316,95 @@ public class StoreTests(ApiFactory factory)
             .EnumerateArray().Select(p => p.GetProperty("pageId").GetString()).ToList();
         Assert.DoesNotContain(s.PageId, after);
     }
+
+    private static async Task DeliverAsync(HttpClient c, Seller s, string orderId)
+    {
+        foreach (var status in new[] { "accepted", "out_for_delivery", "delivered" })
+            (await c.SendAsync(Req("POST", $"/api/seller/v1/orders/{orderId}/status", s.Token, new { status }))).EnsureSuccessStatusCode();
+    }
+
+    private static async Task<List<JsonElement>> FavoritesAsync(HttpClient c, string customer) =>
+        (await (await c.SendAsync(Req("GET", "/api/v1/favorites", customer))).ReadAsync()).EnumerateArray().ToList();
+
+    [Fact]
+    public async Task Favorites_are_kept_per_customer_and_follow_the_product_state()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s = await SellerAsync(c, admin);
+        var kept = await ProductIdAsync(c, s.Token);
+        var hidden = await ProductIdAsync(c, s.Token);
+        var deleted = await ProductIdAsync(c, s.Token);
+        var customer = await Api.CustomerAsync(c);
+        var other = await Api.CustomerAsync(c);
+
+        foreach (var p in new[] { kept, hidden, deleted, kept })
+            Assert.Equal(HttpStatusCode.NoContent, (await c.SendAsync(Req("PUT", $"/api/v1/products/{p}/favorite", customer))).StatusCode);
+        Assert.Equal(3, (await FavoritesAsync(c, customer)).Count);
+        Assert.Empty(await FavoritesAsync(c, other));
+
+        (await c.SendAsync(Req("POST", $"/api/admin/v1/products/{hidden}/hide", admin))).EnsureSuccessStatusCode();
+        (await c.SendAsync(Req("DELETE", $"/api/seller/v1/products/{deleted}", s.Token))).EnsureSuccessStatusCode();
+        var list = await FavoritesAsync(c, customer);
+        Assert.Equal(new[] { hidden, kept }.Order(), list.Select(f => f.GetProperty("id").GetString()!).Order());
+        Assert.False(list.Single(f => f.GetProperty("id").GetString() == hidden).GetProperty("available").GetBoolean());
+        Assert.True(list.Single(f => f.GetProperty("id").GetString() == kept).GetProperty("available").GetBoolean());
+
+        // Hidden products can't be newly favorited; removing is idempotent.
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("PUT", $"/api/v1/products/{hidden}/favorite", other))).StatusCode);
+        (await c.SendAsync(Req("DELETE", $"/api/v1/products/{kept}/favorite", customer))).EnsureSuccessStatusCode();
+        (await c.SendAsync(Req("DELETE", $"/api/v1/products/{kept}/favorite", customer))).EnsureSuccessStatusCode();
+        Assert.DoesNotContain(await FavoritesAsync(c, customer), f => f.GetProperty("id").GetString() == kept);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(Req("GET", "/api/v1/favorites", null))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Only_customers_who_received_a_product_can_rate_it_once_and_edit_it()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s = await SellerAsync(c, admin);
+        var p = await ProductIdAsync(c, s.Token);
+        var first = await Api.CustomerAsync(c);
+        var second = await Api.CustomerAsync(c);
+        Task<HttpResponseMessage> Rate(string token, int stars, string? comment = null) =>
+            c.SendAsync(Req("PUT", $"/api/v1/products/{p}/rating", token, new { stars, comment }));
+
+        // Placed but not delivered yet.
+        var order = (await CheckoutAsync(c, first, p, 1)).GetProperty("orderId").GetString()!;
+        Assert.Equal("rating.not_received", Code(await (await Rate(first, 5)).ReadAsync()));
+        var mine = await (await c.SendAsync(Req("GET", $"/api/v1/products/{p}/ratings/mine", first))).ReadAsync();
+        Assert.False(mine.GetProperty("canRate").GetBoolean());
+
+        await DeliverAsync(c, s, order);
+        await DeliverAsync(c, s, (await CheckoutAsync(c, second, p, 1)).GetProperty("orderId").GetString()!);
+        Assert.True((await (await c.SendAsync(Req("GET", $"/api/v1/products/{p}/ratings/mine", first))).ReadAsync()).GetProperty("canRate").GetBoolean());
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await Rate(first, 6)).StatusCode);
+        Assert.Equal("rating.prohibited", Code(await (await Rate(first, 5, "عنده سلاح")).ReadAsync()));
+        (await Rate(first, 5, "  ممتاز  ")).EnsureSuccessStatusCode();
+        var summary = await (await Rate(second, 2)).ReadAsync();
+        Assert.Equal(3.5, summary.GetProperty("rating").GetDouble());
+        Assert.Equal(2, summary.GetProperty("ratingCount").GetInt32());
+
+        // Editing replaces the customer's rating instead of adding one.
+        (await Rate(first, 3, "زين")).EnsureSuccessStatusCode();
+        var details = await (await c.SendAsync(Req("GET", $"/api/v1/products/{p}", null))).ReadAsync();
+        Assert.Equal(2.5, details.GetProperty("rating").GetDouble());
+        Assert.Equal(2, details.GetProperty("ratingCount").GetInt32());
+        var card = (await (await c.SendAsync(Req("GET", $"/api/v1/pages/{s.PageId}/products", null))).ReadAsync()).GetProperty("items")[0];
+        Assert.Equal(2.5, card.GetProperty("rating").GetDouble());
+
+        var reviews = await (await c.SendAsync(Req("GET", $"/api/v1/products/{p}/ratings", null))).ReadAsync();
+        Assert.Equal(2, reviews.GetProperty("total").GetInt32());
+        var latest = reviews.GetProperty("items")[0];
+        Assert.Equal(3, latest.GetProperty("stars").GetInt32());
+        Assert.Equal("زين", latest.GetProperty("comment").GetString());
+        Assert.Equal("زبون", latest.GetProperty("customerName").GetString());
+        var editedMine = await (await c.SendAsync(Req("GET", $"/api/v1/products/{p}/ratings/mine", first))).ReadAsync();
+        Assert.Equal(3, editedMine.GetProperty("stars").GetInt32());
+
+        var sellerList = await (await c.SendAsync(Req("GET", "/api/seller/v1/products", s.Token))).Content.ReadAsStringAsync();
+        Assert.Contains("\"ratingCount\":2", sellerList);
+    }
 }

@@ -48,6 +48,7 @@ public sealed class StoreOptions
     /// <summary>Home «top-rated pages» strip: how many pages, and products per page.</summary>
     public int TopRatedPages { get; set; }
     public int TopRatedProductsPerPage { get; set; }
+    public int RatingCommentMaxLength { get; set; }
 }
 
 /// <summary>Web seller portal sign-in ("SellerPortal").</summary>

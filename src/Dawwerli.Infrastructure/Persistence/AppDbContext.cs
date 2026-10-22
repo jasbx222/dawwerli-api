@@ -43,6 +43,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IClock 
     public DbSet<SupportMessage> SupportMessages => Set<SupportMessage>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
+    public DbSet<ProductFavorite> ProductFavorites => Set<ProductFavorite>();
+    public DbSet<ProductRating> ProductRatings => Set<ProductRating>();
     public DbSet<StoreOrder> StoreOrders => Set<StoreOrder>();
     public DbSet<StoreOrderItem> StoreOrderItems => Set<StoreOrderItem>();
     public DbSet<SellerAccount> SellerAccounts => Set<SellerAccount>();

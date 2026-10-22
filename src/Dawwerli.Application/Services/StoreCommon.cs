@@ -66,9 +66,10 @@ public sealed class StoreKit(Shared s, IOptions<StoreOptions> options)
         o.Items.Select(i => new StoreOrderItemDto(i.ProductId, i.Name, i.UnitPrice, i.Quantity, s.Url(i.ImageKey))).ToList(), o.CreatedAt, o.StatusChangedAt);
 
     public SellerProductDto ToSellerDto(Product p) => new(p.Id, p.Name, p.Description, p.Price, p.ImageKeys, p.ImageKeys.Select(s.Url).ToList(),
-        p.CategoryId, p.Stock, p.Active, p.HiddenByAdmin, p.Available, p.CreatedAt);
+        p.CategoryId, p.Stock, p.Active, p.HiddenByAdmin, p.Available, p.CreatedAt, p.Rating, p.RatingCount);
 
-    public ProductCardDto ToCard(Product p) => new(p.Id, p.Name, p.Price, s.Url(p.ImageKeys.FirstOrDefault()), p.Available);
+    public ProductCardDto ToCard(Product p) => new(p.Id, p.Name, p.Price, s.Url(p.ImageKeys.FirstOrDefault()), p.Available,
+        p.Description, p.Stock, p.Rating, p.RatingCount);
 
     /// <summary>Store orders reuse the request/order "DW-" number sequence.</summary>
     public Task<long> NextNumberAsync(CancellationToken ct) => Db.NextNumberAsync(OrderSequence, ct);
