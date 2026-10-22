@@ -2,7 +2,7 @@ using Dawwerli.Domain.Common;
 
 namespace Dawwerli.Domain.Entities;
 
-/// <summary>Item a page sells; shown only on the page profile, never on home/feed.</summary>
+/// <summary>Item a page sells; shown on the page profile and in the home top-rated strip, never in the request feed.</summary>
 public class Product : Entity
 {
     public Guid PageId { get; set; }

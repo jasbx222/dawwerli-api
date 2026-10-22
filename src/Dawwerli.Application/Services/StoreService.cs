@@ -15,7 +15,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
 
     private IQueryable<Product> Visible => Db.Products.Where(p => p.Active && !p.HiddenByAdmin && p.DeletedAt == null);
 
-    // ---------- browse (page profile only; never on home/feed) ----------
+    // ---------- browse ----------
 
     public async Task<Result<PagedDto<ProductCardDto>>> PageProductsAsync(Guid pageId, int? pageNo, int? size, CancellationToken ct)
     {
@@ -26,6 +26,31 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         var total = await q.CountAsync(ct);
         var rows = await q.OrderByDescending(x => x.Stock > 0).ThenByDescending(x => x.CreatedAt).Skip((p - 1) * n).Take(n).ToListAsync(ct);
         return new PagedDto<ProductCardDto>(rows.Select(kit.ToCard).ToList(), total, p, n);
+    }
+
+    /// <summary>
+    /// Home strip: in-stock, visible products of the highest-rated active pages (rating, then rating count, then deals).
+    /// Products keep the page order; each page contributes its newest products.
+    /// </summary>
+    public async Task<IReadOnlyList<TopRatedProductDto>> TopRatedProductsAsync(int? pages, int? perPage, CancellationToken ct)
+    {
+        var o = kit.Options;
+        var pageCount = Math.Clamp(pages ?? o.TopRatedPages, 1, o.MaxPageSize);
+        var each = Math.Clamp(perPage ?? o.TopRatedProductsPerPage, 1, o.MaxPageSize);
+        var now = s.Now;
+        var inStock = Visible.Where(p => p.Stock > 0);
+        var top = await Db.Pages
+            .Where(pg => pg.Status == PageStatus.Verified && (pg.SuspendedUntil == null || pg.SuspendedUntil <= now))
+            .Where(pg => inStock.Any(p => p.PageId == pg.Id))
+            .OrderByDescending(pg => pg.Rating).ThenByDescending(pg => pg.RatingCount).ThenByDescending(pg => pg.Deals).ThenBy(pg => pg.Id)
+            .Take(pageCount)
+            .Select(pg => new { pg.Id, pg.Name, pg.Rating, pg.RatingCount })
+            .ToListAsync(ct);
+        var ids = top.Select(t => t.Id).ToList();
+        var rows = await inStock.Where(p => ids.Contains(p.PageId)).OrderByDescending(p => p.CreatedAt).ToListAsync(ct);
+        var byPage = rows.GroupBy(p => p.PageId).ToDictionary(g => g.Key, g => g.Take(each).ToList());
+        return top.SelectMany(pg => byPage.GetValueOrDefault(pg.Id, []).Select(p => new TopRatedProductDto(p.Id, pg.Id, pg.Name, pg.Rating, pg.RatingCount,
+            p.Name, p.Description, p.Price, s.Url(p.ImageKeys.FirstOrDefault()), p.Stock, p.Available))).ToList();
     }
 
     public async Task<Result<ProductDetailsDto>> ProductAsync(Guid id, CancellationToken ct)

@@ -12,6 +12,8 @@ public sealed record SellerProductDto(Guid Id, string Name, string Description, 
 public sealed record ProductCardDto(Guid Id, string Name, long Price, string? ImageUrl, bool Available);
 public sealed record ProductDetailsDto(Guid Id, Guid PageId, string PageName, string Name, string Description, long Price,
     IReadOnlyList<string?> ImageUrls, int CategoryId, int Stock, bool Available);
+public sealed record TopRatedProductDto(Guid Id, Guid PageId, string PageName, double PageRating, int PageRatingCount, string Name, string Description,
+    long Price, string? ImageUrl, int Stock, bool Available);
 public sealed record ReportProductDto(string Reason, string? Text);
 
 // Cart

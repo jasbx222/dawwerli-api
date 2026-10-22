@@ -1,6 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Dawwerli.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Dawwerli.Tests;
 
@@ -56,6 +59,14 @@ public class StoreTests(ApiFactory factory)
     }
 
     private static string Code(JsonElement e) => e.GetProperty("code").GetString()!;
+
+    private async Task RateAsync(string pageId, double rating, int count)
+    {
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var id = Guid.Parse(pageId);
+        await db.Pages.Where(p => p.Id == id).ExecuteUpdateAsync(x => x.SetProperty(p => p.Rating, rating).SetProperty(p => p.RatingCount, count));
+    }
 
     [Fact]
     public async Task Per_page_limit_override_is_enforced_on_create()
@@ -242,5 +253,67 @@ public class StoreTests(ApiFactory factory)
         (await c.SendAsync(Req("GET", $"/api/v1/products/{p}", null))).EnsureSuccessStatusCode();
         var audit = await (await c.SendAsync(Req("GET", "/api/admin/v1/audit", admin))).Content.ReadAsStringAsync();
         Assert.Contains("product.unhide", audit);
+    }
+
+    [Fact]
+    public async Task Top_rated_products_come_from_the_best_rated_active_pages_and_skip_hidden_and_sold_out()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var best = await SellerAsync(c, admin);
+        var second = await SellerAsync(c, admin);
+        await RateAsync(best.PageId, 5.0, 900);
+        await RateAsync(second.PageId, 5.0, 800);
+
+        var newest = await ProductIdAsync(c, best.Token);
+        var soldOut = await ProductIdAsync(c, best.Token, stock: 0);
+        var hidden = await ProductIdAsync(c, best.Token);
+        (await c.SendAsync(Req("POST", $"/api/admin/v1/products/{hidden}/hide", admin))).EnsureSuccessStatusCode();
+        var other = await ProductIdAsync(c, second.Token);
+
+        var r = await c.SendAsync(Req("GET", "/api/v1/products/top-rated?pages=2&perPage=3", null));
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var items = (await r.ReadAsync()).EnumerateArray().ToList();
+        var ids = items.Select(i => i.GetProperty("id").GetString()).ToList();
+        Assert.Equal(new string?[] { newest, other }, ids);
+        Assert.DoesNotContain(soldOut, ids);
+        Assert.DoesNotContain(hidden, ids);
+        var first = items[0];
+        Assert.Equal(best.PageId, first.GetProperty("pageId").GetString());
+        Assert.Equal(5.0, first.GetProperty("pageRating").GetDouble());
+        Assert.True(first.GetProperty("available").GetBoolean());
+        Assert.Equal(5, first.GetProperty("stock").GetInt32());
+        Assert.Equal("مقاس L", first.GetProperty("description").GetString());
+
+        // A page whose only product sells out drops off the strip.
+        var customer = await Api.CustomerAsync(c);
+        await CheckoutAsync(c, customer, other, 5);
+        var after = (await (await c.SendAsync(Req("GET", "/api/v1/products/top-rated?pages=2&perPage=3", null))).ReadAsync())
+            .EnumerateArray().Select(i => i.GetProperty("pageId").GetString()).ToList();
+        Assert.DoesNotContain(second.PageId, after);
+    }
+
+    [Fact]
+    public async Task Top_rated_products_skip_suspended_pages_and_cap_products_per_page()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s = await SellerAsync(c, admin);
+        await RateAsync(s.PageId, 5.0, 1000);
+        for (var i = 0; i < 3; i++) await ProductIdAsync(c, s.Token);
+
+        var capped = (await (await c.SendAsync(Req("GET", "/api/v1/products/top-rated?pages=1&perPage=2", null))).ReadAsync()).EnumerateArray().ToList();
+        Assert.Equal(2, capped.Count);
+        Assert.All(capped, p => Assert.Equal(s.PageId, p.GetProperty("pageId").GetString()));
+
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var id = Guid.Parse(s.PageId);
+            await db.Pages.Where(p => p.Id == id).ExecuteUpdateAsync(x => x.SetProperty(p => p.SuspendedUntil, DateTime.UtcNow.AddDays(1)));
+        }
+        var after = (await (await c.SendAsync(Req("GET", "/api/v1/products/top-rated?pages=1&perPage=2", null))).ReadAsync())
+            .EnumerateArray().Select(p => p.GetProperty("pageId").GetString()).ToList();
+        Assert.DoesNotContain(s.PageId, after);
     }
 }

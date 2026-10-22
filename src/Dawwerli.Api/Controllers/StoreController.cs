@@ -6,13 +6,17 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Dawwerli.Api.Controllers;
 
-/// <summary>Customer app: a page's products (page profile only), one-page cart, checkout and store orders.</summary>
+/// <summary>Customer app: a page's products, top-rated pages' products for home, one-page cart, checkout and store orders.</summary>
 [Route("api/v1"), Authorize(Roles = Roles.Customer)]
 public sealed class StoreController(StoreService store) : AppController
 {
     [AllowAnonymous, HttpGet("pages/{pageId:guid}/products")]
     public async Task<IActionResult> PageProducts(Guid pageId, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
         From(await store.PageProductsAsync(pageId, page, pageSize, ct));
+
+    [AllowAnonymous, HttpGet("products/top-rated")]
+    public async Task<IActionResult> TopRated([FromQuery] int? pages, [FromQuery] int? perPage, CancellationToken ct) =>
+        Ok(await store.TopRatedProductsAsync(pages, perPage, ct));
 
     [AllowAnonymous, HttpGet("products/{id:guid}")] public async Task<IActionResult> Product(Guid id, CancellationToken ct) => From(await store.ProductAsync(id, ct));
     [HttpPost("products/{id:guid}/report")] public async Task<IActionResult> Report(Guid id, ReportProductDto dto, CancellationToken ct) => From(await store.ReportAsync(id, dto, ct));
