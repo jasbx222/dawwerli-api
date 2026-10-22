@@ -776,4 +776,203 @@ public class StoreTests(ApiFactory factory)
         await DbAsync(async db => rows = await db.ProductRatings.CountAsync(r => r.ProductId == id));
         Assert.Equal(4, rows);
     }
+
+    // ---------- customer discovery, follows, rate-once, moderation ----------
+
+    private static async Task<JsonElement> GetAsync(HttpClient c, string url, string? token = null)
+    {
+        var r = await c.SendAsync(Req("GET", url, token));
+        r.EnsureSuccessStatusCode();
+        return await r.ReadAsync();
+    }
+
+    [Fact]
+    public async Task Best_selling_ranks_by_units_in_live_orders_and_highest_rated_by_product_rating()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s = await SellerAsync(c, admin);
+        var hot = await ProductIdAsync(c, s.Token, stock: 20);
+        var warm = await ProductIdAsync(c, s.Token, stock: 20);
+        var cancelled = await ProductIdAsync(c, s.Token, stock: 20);
+        var customer = await Api.CustomerAsync(c);
+
+        await DeliverAsync(c, s, (await CheckoutAsync(c, customer, hot, 4)).GetProperty("orderId").GetString()!);
+        var accepted = (await CheckoutAsync(c, customer, warm, 2)).GetProperty("orderId").GetString()!;
+        (await c.SendAsync(Req("POST", $"/api/seller/v1/orders/{accepted}/status", s.Token, new { status = "accepted" }))).EnsureSuccessStatusCode();
+        var gone = (await CheckoutAsync(c, customer, cancelled, 9)).GetProperty("orderId").GetString()!;
+        (await c.SendAsync(Req("POST", $"/api/v1/store/orders/{gone}/cancel", customer))).EnsureSuccessStatusCode();
+
+        var best = (await GetAsync(c, "/api/v1/products/best-selling?pageSize=50")).GetProperty("items").EnumerateArray().ToList();
+        var ids = best.Select(x => x.GetProperty("id").GetString()).ToList();
+        Assert.Contains(hot, ids);
+        Assert.Contains(warm, ids);
+        Assert.DoesNotContain(cancelled, ids);
+        Assert.True(ids.IndexOf(hot) < ids.IndexOf(warm));
+        Assert.Equal(4, best.First(x => x.GetProperty("id").GetString() == hot).GetProperty("sold").GetInt32());
+
+        (await c.SendAsync(Req("PUT", $"/api/v1/products/{hot}/rating", customer, new { stars = 5, comment = "حلو" }))).EnsureSuccessStatusCode();
+        var rated = (await GetAsync(c, "/api/v1/products/highest-rated?pageSize=50")).GetProperty("items").EnumerateArray()
+            .Select(x => x.GetProperty("id").GetString()).ToList();
+        Assert.Contains(hot, rated);
+        Assert.DoesNotContain(warm, rated);
+    }
+
+    [Fact]
+    public async Task A_product_is_rated_once_with_a_comment_and_a_second_rating_is_a_conflict()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token);
+        var customer = await Api.CustomerAsync(c);
+        await DeliverAsync(c, s, (await CheckoutAsync(c, customer, p, 1)).GetProperty("orderId").GetString()!);
+
+        var before = await GetAsync(c, $"/api/v1/products/{p}", customer);
+        Assert.False(before.GetProperty("hasRated").GetBoolean());
+
+        var first = await c.SendAsync(Req("POST", $"/api/v1/products/{p}/ratings", customer, new { stars = 4, comment = "  وصل بسرعة  " }));
+        first.EnsureSuccessStatusCode();
+        var again = await c.SendAsync(Req("POST", $"/api/v1/products/{p}/ratings", customer, new { stars = 1, comment = "مرة ثانية" }));
+        Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+        Assert.Equal("rating.duplicate", Code(await again.ReadAsync()));
+
+        var details = await GetAsync(c, $"/api/v1/products/{p}", customer);
+        Assert.True(details.GetProperty("hasRated").GetBoolean());
+        Assert.Equal(4, details.GetProperty("myReview").GetProperty("stars").GetInt32());
+        Assert.Equal("وصل بسرعة", details.GetProperty("myReview").GetProperty("comment").GetString());
+        Assert.Equal(1, details.GetProperty("ratingCount").GetInt32());
+
+        var reviews = (await GetAsync(c, $"/api/v1/products/{p}/ratings")).GetProperty("items").EnumerateArray().ToList();
+        Assert.Single(reviews);
+        Assert.Equal("وصل بسرعة", reviews[0].GetProperty("comment").GetString());
+        Assert.False(string.IsNullOrEmpty(reviews[0].GetProperty("customerName").GetString()));
+
+        // Anonymous callers see the product without personal fields.
+        Assert.False((await GetAsync(c, $"/api/v1/products/{p}")).GetProperty("hasRated").GetBoolean());
+        // Rating needs a customer.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(Req("POST", $"/api/v1/products/{p}/ratings", null, new { stars = 5 }))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Admin_can_hide_a_review_from_the_list_and_the_average()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s = await SellerAsync(c, admin);
+        var p = await ProductIdAsync(c, s.Token);
+        var a = await Api.CustomerAsync(c);
+        var b = await Api.CustomerAsync(c);
+        foreach (var (who, stars) in new[] { (a, 5), (b, 1) })
+        {
+            await DeliverAsync(c, s, (await CheckoutAsync(c, who, p, 1)).GetProperty("orderId").GetString()!);
+            (await c.SendAsync(Req("POST", $"/api/v1/products/{p}/ratings", who, new { stars, comment = "تعليق" }))).EnsureSuccessStatusCode();
+        }
+        var list = (await GetAsync(c, $"/api/admin/v1/reviews?productId={p}", admin)).GetProperty("items").EnumerateArray().ToList();
+        Assert.Equal(2, list.Count);
+        var bad = list.First(x => x.GetProperty("stars").GetInt32() == 1).GetProperty("id").GetString();
+        (await c.SendAsync(Req("POST", $"/api/admin/v1/reviews/{bad}/hide", admin))).EnsureSuccessStatusCode();
+
+        var details = await GetAsync(c, $"/api/v1/products/{p}");
+        Assert.Equal(1, details.GetProperty("ratingCount").GetInt32());
+        Assert.Equal(5, details.GetProperty("rating").GetDouble());
+        Assert.Single((await GetAsync(c, $"/api/v1/products/{p}/ratings")).GetProperty("items").EnumerateArray());
+
+        (await c.SendAsync(Req("POST", $"/api/admin/v1/reviews/{bad}/unhide", admin))).EnsureSuccessStatusCode();
+        Assert.Equal(2, (await GetAsync(c, $"/api/v1/products/{p}")).GetProperty("ratingCount").GetInt32());
+        // Customers can't moderate.
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(Req("POST", $"/api/admin/v1/reviews/{bad}/hide", a))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Following_a_page_is_idempotent_counted_and_shown_on_cards_profile_and_page_me()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var app = await Api.VerifiedPageAsync(c, admin, Category);
+        var pageId = (await GetAsync(c, "/api/v1/pages/me", app)).GetProperty("id").GetString()!;
+        var customer = await Api.CustomerAsync(c);
+        var other = await Api.CustomerAsync(c);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(Req("POST", $"/api/v1/pages/{pageId}/follow", null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(Req("POST", $"/api/v1/pages/{pageId}/follow", app))).StatusCode);
+
+        var f1 = await (await c.SendAsync(Req("POST", $"/api/v1/pages/{pageId}/follow", customer))).ReadAsync();
+        var f2 = await (await c.SendAsync(Req("POST", $"/api/v1/pages/{pageId}/follow", customer))).ReadAsync();
+        Assert.True(f2.GetProperty("isFollowing").GetBoolean());
+        Assert.Equal(1, f2.GetProperty("followerCount").GetInt32());
+        (await c.SendAsync(Req("POST", $"/api/v1/pages/{pageId}/follow", other))).EnsureSuccessStatusCode();
+
+        var profile = await GetAsync(c, $"/api/v1/pages/{pageId}/profile", customer);
+        Assert.Equal(2, profile.GetProperty("followerCount").GetInt32());
+        Assert.True(profile.GetProperty("isFollowing").GetBoolean());
+        Assert.False((await GetAsync(c, $"/api/v1/pages/{pageId}/profile")).GetProperty("isFollowing").GetBoolean());
+        Assert.Equal(2, (await GetAsync(c, "/api/v1/pages/me", app)).GetProperty("followerCount").GetInt32());
+
+        var mine = (await GetAsync(c, "/api/v1/pages/directory?following=true&pageSize=50", customer)).GetProperty("items").EnumerateArray().ToList();
+        Assert.Contains(mine, x => x.GetProperty("id").GetString() == pageId && x.GetProperty("isFollowing").GetBoolean());
+
+        var un = await (await c.SendAsync(Req("DELETE", $"/api/v1/pages/{pageId}/follow", customer))).ReadAsync();
+        Assert.False(un.GetProperty("isFollowing").GetBoolean());
+        Assert.Equal(1, un.GetProperty("followerCount").GetInt32());
+        (await c.SendAsync(Req("DELETE", $"/api/v1/pages/{pageId}/follow", customer))).EnsureSuccessStatusCode();
+        Assert.DoesNotContain((await GetAsync(c, "/api/v1/pages/directory?following=true&pageSize=50", customer)).GetProperty("items").EnumerateArray(),
+            x => x.GetProperty("id").GetString() == pageId);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("POST", $"/api/v1/pages/{Guid.NewGuid()}/follow", customer))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Followers_get_one_throttled_notice_for_new_products_and_others_get_none()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var follower = await Api.CustomerAsync(c);
+        var stranger = await Api.CustomerAsync(c);
+        (await c.SendAsync(Req("POST", $"/api/v1/pages/{s.PageId}/follow", follower))).EnsureSuccessStatusCode();
+
+        var first = await ProductIdAsync(c, s.Token);
+        await ProductIdAsync(c, s.Token);
+        await ProductIdAsync(c, s.Token);
+
+        List<JsonElement> Mine(JsonElement page) => page.GetProperty("items").EnumerateArray()
+            .Where(n => n.GetProperty("route").GetString()!.Contains(s.PageId) || n.GetProperty("route").GetString() == $"/products/{first}").ToList();
+        var notes = Mine(await GetAsync(c, "/api/v1/notifications", follower));
+        Assert.Single(notes);
+        Assert.Contains("3", notes[0].GetProperty("body").GetString());
+        Assert.Equal($"/pages/{s.PageId}", notes[0].GetProperty("route").GetString());
+        Assert.Empty(Mine(await GetAsync(c, "/api/v1/notifications", stranger)));
+    }
+
+    [Fact]
+    public async Task Top_pages_puts_admin_picks_first_in_order_and_caps_at_five()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var picks = new List<string>();
+        for (var i = 0; i < 2; i++)
+        {
+            var app = await Api.VerifiedPageAsync(c, admin, Category);
+            picks.Add((await GetAsync(c, "/api/v1/pages/me", app)).GetProperty("id").GetString()!);
+        }
+        try
+        {
+            (await c.SendAsync(Req("PUT", "/api/admin/v1/pages/featured", admin, new { pageIds = new[] { picks[1], picks[0] } }))).EnsureSuccessStatusCode();
+            var top = (await GetAsync(c, "/api/v1/pages/top")).EnumerateArray().Select(x => x.GetProperty("id").GetString()).ToList();
+            Assert.True(top.Count <= 5);
+            Assert.Equal(picks[1], top[0]);
+            Assert.Equal(picks[0], top[1]);
+            var featured = (await GetAsync(c, "/api/admin/v1/pages/featured", admin)).EnumerateArray().ToList();
+            Assert.Equal(2, featured.Count);
+            Assert.Equal(1, featured[0].GetProperty("order").GetInt32());
+
+            var six = Enumerable.Range(0, 6).Select(_ => Guid.NewGuid()).ToArray();
+            Assert.Equal(HttpStatusCode.BadRequest, (await c.SendAsync(Req("PUT", "/api/admin/v1/pages/featured", admin, new { pageIds = six }))).StatusCode);
+            var dir = (await GetAsync(c, "/api/v1/pages/directory?pageSize=50")).GetProperty("items").EnumerateArray().Select(x => x.GetProperty("id").GetString()).ToList();
+            Assert.Equal(picks[1], dir[0]);
+        }
+        finally
+        {
+            (await c.SendAsync(Req("PUT", "/api/admin/v1/pages/featured", admin, new { pageIds = Array.Empty<string>() }))).EnsureSuccessStatusCode();
+        }
+        Assert.Empty((await GetAsync(c, "/api/admin/v1/pages/featured", admin)).EnumerateArray());
+    }
 }
