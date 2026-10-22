@@ -50,6 +50,39 @@ public class StoreTests(ApiFactory factory)
     private static async Task<int> StockAsync(HttpClient c, string productId) =>
         (await (await c.SendAsync(Req("GET", $"/api/v1/products/{productId}", null))).ReadAsync()).GetProperty("stock").GetInt32();
 
+    /// <summary>The customer app calls the cart under /store, like checkout and orders; those paths must reach the cart.</summary>
+    [Fact]
+    public async Task App_cart_paths_add_an_in_stock_product_read_and_clear_the_cart()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var seller = await SellerAsync(c, admin);
+        var p = await ProductIdAsync(c, seller.Token, stock: 4);
+        var customer = await Api.CustomerAsync(c);
+
+        // Exact request the app sends from «أضف للسلة».
+        var add = await c.SendAsync(Req("POST", "/api/v1/store/cart/items", customer, new { productId = p, quantity = 1 }));
+        Assert.Equal(HttpStatusCode.OK, add.StatusCode);
+        var line = Assert.Single((await add.ReadAsync()).GetProperty("items").EnumerateArray());
+        Assert.Equal(p, line.GetProperty("productId").GetString());
+        Assert.Equal(1, line.GetProperty("quantity").GetInt32());
+
+        var put = await c.SendAsync(Req("PUT", $"/api/v1/store/cart/items/{p}", customer, new { quantity = 2 }));
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        var cart = await (await c.SendAsync(Req("GET", "/api/v1/store/cart", customer))).ReadAsync();
+        Assert.Equal(2, cart.GetProperty("items")[0].GetProperty("quantity").GetInt32());
+        // Same cart on the original path.
+        var same = await (await c.SendAsync(Req("GET", "/api/v1/cart", customer))).ReadAsync();
+        Assert.Equal(cart.GetRawText(), same.GetRawText());
+
+        var del = await c.SendAsync(Req("DELETE", $"/api/v1/store/cart/items/{p}", customer));
+        Assert.Equal(HttpStatusCode.OK, del.StatusCode);
+        Assert.Empty((await del.ReadAsync()).GetProperty("items").EnumerateArray());
+        (await c.SendAsync(Req("POST", "/api/v1/store/cart/items", customer, new { productId = p, quantity = 1 }))).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.NoContent, (await c.SendAsync(Req("DELETE", "/api/v1/store/cart", customer))).StatusCode);
+        Assert.Empty((await (await c.SendAsync(Req("GET", "/api/v1/store/cart", customer))).ReadAsync()).GetProperty("items").EnumerateArray());
+    }
+
     private static async Task<JsonElement> CheckoutAsync(HttpClient c, string customer, string productId, int qty)
     {
         (await c.SendAsync(Req("POST", "/api/v1/cart/items", customer, new { productId, quantity = qty }))).EnsureSuccessStatusCode();

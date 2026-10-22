@@ -58,11 +58,12 @@ public sealed class StoreController(StoreService store, DiscoveryService discove
 
     [HttpPost("products/{id:guid}/report")] public async Task<IActionResult> Report(Guid id, ReportProductDto dto, CancellationToken ct) => From(await store.ReportAsync(id, dto, ct));
 
-    [HttpGet("cart")] public async Task<IActionResult> Cart(CancellationToken ct) => Ok(await store.CartAsync(ct));
-    [HttpPost("cart/items")] public async Task<IActionResult> Add(AddCartItemDto dto, CancellationToken ct) => From(await store.AddAsync(dto, ct));
-    [HttpPut("cart/items/{productId:guid}")] public async Task<IActionResult> SetQty(Guid productId, SetCartQuantityDto dto, CancellationToken ct) => From(await store.SetQuantityAsync(productId, dto, ct));
-    [HttpDelete("cart/items/{productId:guid}")] public async Task<IActionResult> Remove(Guid productId, CancellationToken ct) => Ok(await store.RemoveAsync(productId, ct));
-    [HttpDelete("cart")] public async Task<IActionResult> Clear(CancellationToken ct) { await store.ClearAsync(ct); return NoContent(); }
+    /// <summary>The cart also answers under store/ (store/cart, store/cart/items), next to store/checkout and store/orders; the customer app uses those paths.</summary>
+    [HttpGet("cart"), HttpGet("store/cart")] public async Task<IActionResult> Cart(CancellationToken ct) => Ok(await store.CartAsync(ct));
+    [HttpPost("cart/items"), HttpPost("store/cart/items")] public async Task<IActionResult> Add(AddCartItemDto dto, CancellationToken ct) => From(await store.AddAsync(dto, ct));
+    [HttpPut("cart/items/{productId:guid}"), HttpPut("store/cart/items/{productId:guid}")] public async Task<IActionResult> SetQty(Guid productId, SetCartQuantityDto dto, CancellationToken ct) => From(await store.SetQuantityAsync(productId, dto, ct));
+    [HttpDelete("cart/items/{productId:guid}"), HttpDelete("store/cart/items/{productId:guid}")] public async Task<IActionResult> Remove(Guid productId, CancellationToken ct) => Ok(await store.RemoveAsync(productId, ct));
+    [HttpDelete("cart"), HttpDelete("store/cart")] public async Task<IActionResult> Clear(CancellationToken ct) { await store.ClearAsync(ct); return NoContent(); }
 
     [HttpPost("store/checkout"), Idempotent] public async Task<IActionResult> Checkout(CheckoutDto dto, CancellationToken ct) => From(await store.CheckoutAsync(dto, ct));
     [HttpGet("store/orders")]
