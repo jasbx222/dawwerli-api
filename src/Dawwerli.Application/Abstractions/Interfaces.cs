@@ -55,6 +55,8 @@ public interface IAppDbContext
     Task LockStoreOrderAsync(Guid orderId, CancellationToken ct = default);
     /// <summary>SELECT ... FOR UPDATE on the page row, e.g. to serialize product creation against the page's limit.</summary>
     Task LockPageAsync(Guid pageId, CancellationToken ct = default);
+    /// <summary>Recomputes a product's rating average and count from its ratings in one statement.</summary>
+    Task RefreshProductRatingAsync(Guid productId, CancellationToken ct = default);
     Task<long> NextNumberAsync(string sequence, CancellationToken ct = default);
 }
 

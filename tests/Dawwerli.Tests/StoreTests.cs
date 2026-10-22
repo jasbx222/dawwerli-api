@@ -733,4 +733,47 @@ public class StoreTests(ApiFactory factory)
         var list = (await (await c.SendAsync(Req("GET", "/api/v1/store/orders", customer))).ReadAsync()).GetProperty("items");
         Assert.All(list.EnumerateArray(), o => Assert.True(o.GetProperty("history").GetArrayLength() >= 2));
     }
+
+    [Fact]
+    public async Task Unknown_seller_emails_lock_out_like_real_ones()
+    {
+        var c = await factory.ClientAsync();
+        var email = $"ghost{Guid.NewGuid():N}@shop.test";
+        Task<HttpResponseMessage> Login() => c.SendAsync(Req("POST", "/api/seller/v1/auth/login", null, new { email, password = "wrong-wrong-1" }));
+        for (var i = 0; i < 5; i++) Assert.Equal(HttpStatusCode.Unauthorized, (await Login()).StatusCode);
+        var locked = await Login();
+        Assert.Equal(HttpStatusCode.TooManyRequests, locked.StatusCode);
+        Assert.Equal("auth.locked", Code(await locked.ReadAsync()));
+    }
+
+    [Fact]
+    public async Task Parallel_ratings_keep_the_average_exact_and_one_row_per_customer()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token);
+        var buyers = new List<string>();
+        for (var i = 0; i < 4; i++)
+        {
+            var b = await Api.CustomerAsync(c);
+            await DeliverAsync(c, s, OrderId(await CheckoutAsync(c, b, p, 1)));
+            buyers.Add(b);
+        }
+        Task<HttpResponseMessage> Rate(string token, int stars) =>
+            c.SendAsync(Req("PUT", $"/api/v1/products/{p}/rating", token, new { stars }));
+
+        // Same customer twice at once: both succeed, one rating row.
+        var same = await Task.WhenAll(Rate(buyers[0], 5), Rate(buyers[0], 5));
+        Assert.All(same, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        // Different customers at once: the stored average and count include everyone.
+        var all = await Task.WhenAll(Rate(buyers[1], 1), Rate(buyers[2], 2), Rate(buyers[3], 4));
+        Assert.All(all, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        var details = await (await c.SendAsync(Req("GET", $"/api/v1/products/{p}", null))).ReadAsync();
+        Assert.Equal(4, details.GetProperty("ratingCount").GetInt32());
+        Assert.Equal(3.0, details.GetProperty("rating").GetDouble());
+        var rows = 0;
+        var id = Guid.Parse(p);
+        await DbAsync(async db => rows = await db.ProductRatings.CountAsync(r => r.ProductId == id));
+        Assert.Equal(4, rows);
+    }
 }

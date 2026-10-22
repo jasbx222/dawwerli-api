@@ -141,17 +141,25 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         if (!await ReceivedAsync(productId, ct)) return Error.Rule("rating.not_received", "You can rate a product after you receive it");
 
         var mine = await Db.ProductRatings.FirstOrDefaultAsync(r => r.ProductId == productId && r.UserId == Me, ct);
-        if (mine is null) Db.ProductRatings.Add(mine = new ProductRating { ProductId = productId, UserId = Me });
+        if (mine is null)
+        {
+            Db.ProductRatings.Add(mine = new ProductRating { ProductId = productId, UserId = Me, Stars = dto.Stars, Comment = comment });
+            try { await Db.SaveChangesAsync(ct); }
+            catch (DbUpdateException)
+            {
+                // A parallel request from the same customer inserted first: update that row instead.
+                Db.Entry(mine).State = EntityState.Detached;
+                mine = await Db.ProductRatings.FirstAsync(r => r.ProductId == productId && r.UserId == Me, ct);
+            }
+        }
         mine.Stars = dto.Stars;
         mine.Comment = comment;
         await Db.SaveChangesAsync(ct);
 
-        var stats = await Db.ProductRatings.Where(r => r.ProductId == productId)
-            .GroupBy(r => r.ProductId).Select(g => new { Avg = g.Average(r => (double)r.Stars), Count = g.Count() }).FirstAsync(ct);
-        var rating = Math.Round(stats.Avg, 1, MidpointRounding.AwayFromZero);
-        await Db.Products.Where(p => p.Id == productId)
-            .ExecuteUpdateAsync(x => x.SetProperty(p => p.Rating, rating).SetProperty(p => p.RatingCount, stats.Count), ct);
-        return new ProductRatingSummaryDto(rating, stats.Count, mine.Stars, mine.Comment);
+        // One statement, so parallel ratings of the same product never write a stale average or count.
+        await Db.RefreshProductRatingAsync(productId, ct);
+        var after = await Db.Products.AsNoTracking().Where(p => p.Id == productId).Select(p => new { p.Rating, p.RatingCount }).FirstAsync(ct);
+        return new ProductRatingSummaryDto(after.Rating, after.RatingCount, mine.Stars, mine.Comment);
     }
 
     private static string FirstName(string? name) =>

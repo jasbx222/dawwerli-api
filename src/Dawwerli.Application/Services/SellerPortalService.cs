@@ -23,12 +23,15 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         var email = Normalize(dto.Email);
         var now = s.Now;
         var acc = await Db.SellerAccounts.Include(a => a.Page).FirstOrDefaultAsync(a => a.Email == email, ct);
-        if (acc?.LockedUntil > now)
-            return Error.Limited("auth.locked", "Too many wrong passwords", (int)Math.Ceiling((acc.LockedUntil.Value - now).TotalSeconds));
+        // Unknown emails lock the same way known ones do, so a 429 never tells whether an account exists.
+        var lockedUntil = acc is null ? UnknownEmailLocks.LockedUntil(email, now) : acc.LockedUntil;
+        if (lockedUntil > now)
+            return Error.Limited("auth.locked", "Too many wrong passwords", (int)Math.Ceiling((lockedUntil.Value - now).TotalSeconds));
         var ok = passwords.Verify(dto.Password ?? "", acc?.PasswordHash ?? (_dummyHash ??= passwords.Hash(Guid.NewGuid().ToString())));
         if (acc is null || !ok)
         {
-            if (acc is not null)
+            if (acc is null) UnknownEmailLocks.Fail(email, now, portal.Value.MaxFailedLogins, portal.Value.LockMinutes);
+            else
             {
                 if (++acc.FailedLogins >= portal.Value.MaxFailedLogins)
                 {
@@ -243,5 +246,27 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         var active = await Db.Products.CountAsync(p => p.PageId == pageId && p.DeletedAt == null && p.Active && !p.HiddenByAdmin, ct);
         return new SellerStatsDto(byStatus.Sum(x => x.Count), byStatus.ToDictionary(x => x.Key.Code(), x => x.Count), sales, active,
             top.Select(t => new TopProductDto(t.ProductId, t.Name, t.Qty, t.Sales)).ToList());
+    }
+}
+
+/// <summary>Failed-login counters for emails with no seller account (kept in memory, bounded).</summary>
+internal static class UnknownEmailLocks
+{
+    private const int MaxEntries = 10_000;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Fails, DateTime? Until)> Entries = new();
+
+    public static DateTime? LockedUntil(string email, DateTime now) =>
+        Entries.TryGetValue(email, out var e) && e.Until > now ? e.Until : null;
+
+    public static void Fail(string email, DateTime now, int maxFails, int lockMinutes)
+    {
+        if (Entries.Count >= MaxEntries)
+            foreach (var k in Entries.Where(x => x.Value.Until is null || x.Value.Until <= now).Select(x => x.Key).ToList()) Entries.TryRemove(k, out _);
+        Entries.AddOrUpdate(email, (1, null), (_, e) =>
+        {
+            if (e.Until is { } u && u <= now) e = (0, null);
+            var fails = e.Fails + 1;
+            return fails >= maxFails ? (0, now.AddMinutes(lockMinutes)) : (fails, e.Until);
+        });
     }
 }
