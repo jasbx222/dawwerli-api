@@ -43,8 +43,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IClock 
     public DbSet<SupportMessage> SupportMessages => Set<SupportMessage>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
+    public DbSet<ProductFavorite> ProductFavorites => Set<ProductFavorite>();
+    public DbSet<ProductRating> ProductRatings => Set<ProductRating>();
     public DbSet<StoreOrder> StoreOrders => Set<StoreOrder>();
     public DbSet<StoreOrderItem> StoreOrderItems => Set<StoreOrderItem>();
+    public DbSet<StoreOrderEvent> StoreOrderEvents => Set<StoreOrderEvent>();
     public DbSet<SellerAccount> SellerAccounts => Set<SellerAccount>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default) =>
@@ -52,6 +55,18 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IClock 
 
     public Task LockRequestAsync(Guid requestId, CancellationToken ct = default) =>
         Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM requests WHERE id = {requestId} FOR UPDATE", ct);
+
+    public Task LockStoreOrderAsync(Guid orderId, CancellationToken ct = default) =>
+        Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM store_orders WHERE id = {orderId} FOR UPDATE", ct);
+
+    public Task RefreshProductRatingAsync(Guid productId, CancellationToken ct = default) =>
+        Database.ExecuteSqlInterpolatedAsync($@"UPDATE products SET
+            rating = COALESCE((SELECT round(avg(stars)::numeric, 1) FROM product_ratings WHERE product_id = {productId}), 0)::double precision,
+            rating_count = (SELECT count(*) FROM product_ratings WHERE product_id = {productId})
+            WHERE id = {productId}", ct);
+
+    public Task LockPageAsync(Guid pageId, CancellationToken ct = default) =>
+        Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM pages WHERE id = {pageId} FOR UPDATE", ct);
 
     public async Task<long> NextNumberAsync(string sequence, CancellationToken ct = default) =>
         (await Database.SqlQueryRaw<long>($"SELECT nextval('{(sequence == OrderNumberSeq ? OrderNumberSeq : RequestNumberSeq)}') AS \"Value\"").ToListAsync(ct))[0];

@@ -13,6 +13,7 @@ public static class SellerPortalClaims
     public const string Role = "SellerPortal";
     public const string Scope = "scope";
     public const string ScopeValue = "seller_portal";
+    public const string Stamp = "pwd_stamp";
 }
 
 public sealed class SellerTokenService(IOptions<JwtOptions> jwt, IOptions<SellerPortalOptions> portal) : ISellerTokenService
@@ -28,6 +29,7 @@ public sealed class SellerTokenService(IOptions<JwtOptions> jwt, IOptions<Seller
             new(ClaimTypes.Role, SellerPortalClaims.Role),
             new(SellerPortalClaims.Scope, SellerPortalClaims.ScopeValue),
             new(AppClaims.PageId, account.PageId.ToString()),
+            new(SellerPortalClaims.Stamp, SellerAccount.StampOf(account.PasswordHash)),
         ];
         var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(o.SigningKey)), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(o.Issuer, o.Audience, claims, expires: DateTime.UtcNow.AddMinutes(portal.Value.AccessMinutes), signingCredentials: creds);

@@ -39,8 +39,11 @@ public sealed class StoreKit(Shared s, IOptions<StoreOptions> options)
     public Task<int> ProductCountAsync(Guid pageId, CancellationToken ct) =>
         Db.Products.CountAsync(p => p.PageId == pageId && p.DeletedAt == null, ct);
 
+    /// <summary>Deepest page served; keeps (page - 1) * size far from int overflow.</summary>
+    public const int MaxPageNumber = 10_000;
+
     public (int Page, int Size) Paging(int? page, int? size) =>
-        (Math.Max(1, page ?? 1), Math.Clamp(size ?? Options.DefaultPageSize, 1, Options.MaxPageSize));
+        (Math.Clamp(page ?? 1, 1, MaxPageNumber), Math.Clamp(size ?? Options.DefaultPageSize, 1, Options.MaxPageSize));
 
     /// <summary>Reserves stock atomically (no oversell under concurrency). Returns false when stock is short.</summary>
     public async Task<bool> ReserveAsync(Guid productId, int qty, CancellationToken ct) =>
@@ -59,16 +62,18 @@ public sealed class StoreKit(Shared s, IOptions<StoreOptions> options)
         return texts.Select(t => ContactFilter.FindBanned(t, banned)).FirstOrDefault(w => w is not null);
     }
 
-    public IQueryable<StoreOrder> Orders => Db.StoreOrders.Include(o => o.Items).Include(o => o.Page);
+    public IQueryable<StoreOrder> Orders => Db.StoreOrders.Include(o => o.Items).Include(o => o.History).Include(o => o.Page).AsSplitQuery();
 
     public StoreOrderDto ToDto(StoreOrder o) => new(o.Id, Shared.OrderNo(o.Number), o.PageId, o.Page?.Name ?? "", o.Status.Code(),
         o.PaymentMethod.Code(), o.PaymentStatus.Code(), o.Address, o.GovernorateId, o.Note, o.Subtotal, o.Commission, o.StatusReason,
-        o.Items.Select(i => new StoreOrderItemDto(i.ProductId, i.Name, i.UnitPrice, i.Quantity, s.Url(i.ImageKey))).ToList(), o.CreatedAt, o.StatusChangedAt);
+        o.Items.Select(i => new StoreOrderItemDto(i.ProductId, i.Name, i.UnitPrice, i.Quantity, s.Url(i.ImageKey))).ToList(), o.CreatedAt, o.StatusChangedAt,
+        o.History.OrderBy(e => e.At).Select(e => new StoreOrderEventDto(e.Status.Code(), e.At)).ToList());
 
     public SellerProductDto ToSellerDto(Product p) => new(p.Id, p.Name, p.Description, p.Price, p.ImageKeys, p.ImageKeys.Select(s.Url).ToList(),
-        p.CategoryId, p.Stock, p.Active, p.HiddenByAdmin, p.Available, p.CreatedAt);
+        p.CategoryId, p.Stock, p.Active, p.HiddenByAdmin, p.Available, p.CreatedAt, p.Rating, p.RatingCount);
 
-    public ProductCardDto ToCard(Product p) => new(p.Id, p.Name, p.Price, s.Url(p.ImageKeys.FirstOrDefault()), p.Available);
+    public ProductCardDto ToCard(Product p) => new(p.Id, p.Name, p.Price, s.Url(p.ImageKeys.FirstOrDefault()), p.Available,
+        p.Description, p.Stock, p.Rating, p.RatingCount);
 
     /// <summary>Store orders reuse the request/order "DW-" number sequence.</summary>
     public Task<long> NextNumberAsync(CancellationToken ct) => Db.NextNumberAsync(OrderSequence, ct);

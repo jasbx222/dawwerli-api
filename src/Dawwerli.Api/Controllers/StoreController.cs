@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Dawwerli.Api.Controllers;
 
-/// <summary>Customer app: a page's products (page profile only), one-page cart, checkout and store orders.</summary>
+/// <summary>Customer app: a page's products, top-rated pages' products for home, one-page cart, checkout and store orders.</summary>
 [Route("api/v1"), Authorize(Roles = Roles.Customer)]
 public sealed class StoreController(StoreService store) : AppController
 {
@@ -14,7 +14,21 @@ public sealed class StoreController(StoreService store) : AppController
     public async Task<IActionResult> PageProducts(Guid pageId, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
         From(await store.PageProductsAsync(pageId, page, pageSize, ct));
 
+    [AllowAnonymous, HttpGet("products/top-rated")]
+    public async Task<IActionResult> TopRated([FromQuery] int? pages, [FromQuery] int? perPage, CancellationToken ct) =>
+        Ok(await store.TopRatedProductsAsync(pages, perPage, ct));
+
     [AllowAnonymous, HttpGet("products/{id:guid}")] public async Task<IActionResult> Product(Guid id, CancellationToken ct) => From(await store.ProductAsync(id, ct));
+    [HttpGet("favorites")] public async Task<IActionResult> Favorites(CancellationToken ct) => Ok(await store.FavoritesAsync(ct));
+    [HttpPut("products/{id:guid}/favorite")] public async Task<IActionResult> Favorite(Guid id, CancellationToken ct) => From(await store.AddFavoriteAsync(id, ct));
+    [HttpDelete("products/{id:guid}/favorite")] public async Task<IActionResult> Unfavorite(Guid id, CancellationToken ct) { await store.RemoveFavoriteAsync(id, ct); return NoContent(); }
+
+    [AllowAnonymous, HttpGet("products/{id:guid}/ratings")]
+    public async Task<IActionResult> Ratings(Guid id, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
+        From(await store.ReviewsAsync(id, page, pageSize, ct));
+    [HttpGet("products/{id:guid}/ratings/mine")] public async Task<IActionResult> MyRating(Guid id, CancellationToken ct) => From(await store.MyRatingAsync(id, ct));
+    [HttpPut("products/{id:guid}/rating")] public async Task<IActionResult> Rate(Guid id, RateProductDto dto, CancellationToken ct) => From(await store.RateAsync(id, dto, ct));
+
     [HttpPost("products/{id:guid}/report")] public async Task<IActionResult> Report(Guid id, ReportProductDto dto, CancellationToken ct) => From(await store.ReportAsync(id, dto, ct));
 
     [HttpGet("cart")] public async Task<IActionResult> Cart(CancellationToken ct) => Ok(await store.CartAsync(ct));

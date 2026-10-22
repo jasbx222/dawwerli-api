@@ -40,14 +40,23 @@ public interface IAppDbContext
     DbSet<SupportMessage> SupportMessages { get; }
     DbSet<Product> Products { get; }
     DbSet<CartItem> CartItems { get; }
+    DbSet<ProductFavorite> ProductFavorites { get; }
+    DbSet<ProductRating> ProductRatings { get; }
     DbSet<StoreOrder> StoreOrders { get; }
     DbSet<StoreOrderItem> StoreOrderItems { get; }
+    DbSet<StoreOrderEvent> StoreOrderEvents { get; }
     DbSet<SellerAccount> SellerAccounts { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     EntityEntry<T> Entry<T>(T entity) where T : class;
     Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default);
     /// <summary>SELECT ... FOR UPDATE on the request row (call inside a transaction).</summary>
     Task LockRequestAsync(Guid requestId, CancellationToken ct = default);
+    /// <summary>SELECT ... FOR UPDATE on the store order row, so status moves (and stock restores) run one at a time.</summary>
+    Task LockStoreOrderAsync(Guid orderId, CancellationToken ct = default);
+    /// <summary>SELECT ... FOR UPDATE on the page row, e.g. to serialize product creation against the page's limit.</summary>
+    Task LockPageAsync(Guid pageId, CancellationToken ct = default);
+    /// <summary>Recomputes a product's rating average and count from its ratings in one statement.</summary>
+    Task RefreshProductRatingAsync(Guid productId, CancellationToken ct = default);
     Task<long> NextNumberAsync(string sequence, CancellationToken ct = default);
 }
 
@@ -174,4 +183,6 @@ public interface ICurrentSeller
 {
     Guid AccountId { get; }
     Guid PageId { get; }
+    /// <summary>Password stamp the token was issued with (see <see cref="Domain.Entities.SellerAccount.StampOf"/>).</summary>
+    string? Stamp { get; }
 }

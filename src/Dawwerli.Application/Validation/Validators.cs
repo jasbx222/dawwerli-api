@@ -134,6 +134,25 @@ public sealed class UpsertProductValidator : AbstractValidator<UpsertProductDto>
         RuleFor(x => x.Stock).InclusiveBetween(0, o.MaxStock);
         RuleFor(x => x.CategoryId).GreaterThan(0);
         RuleFor(x => x.ImageKeys).NotNull();
+        RuleForEach(x => x.ImageKeys).NotEmpty().MaximumLength(200);
+    }
+}
+
+public sealed class SetOrderStatusValidator : AbstractValidator<SetOrderStatusDto>
+{
+    public SetOrderStatusValidator(Microsoft.Extensions.Options.IOptions<Dawwerli.Application.Abstractions.StoreOptions> options)
+    {
+        RuleFor(x => x.Status).NotEmpty().MaximumLength(40);
+        RuleFor(x => x.Reason).MaximumLength(options.Value.NoteMaxLength);
+    }
+}
+
+public sealed class ReportProductValidator : AbstractValidator<ReportProductDto>
+{
+    public ReportProductValidator()
+    {
+        RuleFor(x => x.Reason).NotEmpty().MaximumLength(40);
+        RuleFor(x => x.Text).MaximumLength(1000);
     }
 }
 

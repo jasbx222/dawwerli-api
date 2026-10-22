@@ -218,6 +218,26 @@ internal sealed class ProductConfig : IEntityTypeConfiguration<Product>
     }
 }
 
+internal sealed class ProductFavoriteConfig : IEntityTypeConfiguration<ProductFavorite>
+{
+    public void Configure(EntityTypeBuilder<ProductFavorite> b)
+    {
+        b.HasIndex(x => new { x.UserId, x.ProductId }).IsUnique();
+        b.HasIndex(x => new { x.UserId, x.CreatedAt });
+    }
+}
+
+internal sealed class ProductRatingConfig : IEntityTypeConfiguration<ProductRating>
+{
+    public void Configure(EntityTypeBuilder<ProductRating> b)
+    {
+        b.HasIndex(x => new { x.ProductId, x.UserId }).IsUnique();
+        b.HasIndex(x => new { x.ProductId, x.UpdatedAt });
+        b.Property(x => x.Comment).HasMaxLength(1000);
+        b.ToTable(t => t.HasCheckConstraint("ck_product_ratings_stars", "stars BETWEEN 1 AND 5"));
+    }
+}
+
 internal sealed class CartItemConfig : IEntityTypeConfiguration<CartItem>
 {
     public void Configure(EntityTypeBuilder<CartItem> b) => b.HasIndex(x => new { x.UserId, x.ProductId }).IsUnique();
@@ -232,6 +252,17 @@ internal sealed class StoreOrderConfig : IEntityTypeConfiguration<StoreOrder>
         b.HasIndex(x => new { x.CustomerUserId, x.CreatedAt });
         b.Property(x => x.Address).HasMaxLength(500);
         b.HasMany(x => x.Items).WithOne().HasForeignKey(i => i.OrderId);
+        b.HasMany(x => x.History).WithOne().HasForeignKey(e => e.OrderId);
+    }
+}
+
+internal sealed class StoreOrderEventConfig : IEntityTypeConfiguration<StoreOrderEvent>
+{
+    public void Configure(EntityTypeBuilder<StoreOrderEvent> b)
+    {
+        // Ids are set in code; events added to a tracked order must insert, not update.
+        b.Property(x => x.Id).ValueGeneratedNever();
+        b.HasIndex(x => new { x.OrderId, x.At });
     }
 }
 
