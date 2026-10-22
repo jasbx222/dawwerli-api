@@ -70,9 +70,12 @@ public sealed record PageMeDto(Guid Id, string Name, string Instagram, string St
     int Deals, bool Trusted, int FreeUsed, int FreeSelections, long Balance, DateTime? EarlyAccessUntil, DateTime? SuspendedUntil, string? Image, string? Bio,
     PageSettingsDto Settings, string? Phone);
 public sealed record InboxItemDto(Guid Id, string Title, string? Image, string Governorate, string Condition, long MaxPrice, DateTime PostedAt,
-    int Offers, DateTime? EarlyUntil, int EarlyTaken, bool OfferedByMe, bool Cancelled, string Category);
+    int Offers, DateTime? EarlyUntil, int EarlyTaken, bool OfferedByMe, bool Cancelled, string Category, int CategoryId = 0);
+/// <summary>Filters for the page home feed. All fields are optional; see PageService.FeedAsync for the accepted values.</summary>
+public sealed record PageFeedQuery(int? CategoryId, string? Since, string? Sort, long? MinPrice, long? MaxPrice, int? Page, int? PageSize);
 public sealed record SellerOfferDto(Guid Id, Guid RequestId, string Title, string? Image, long Price, string State, Guid? OrderId, string? OrderNo,
-    DateTime? ChosenAt, bool Contacted, bool GhostReported, int? SelectionNo, string Governorate, string? CustomerPhone, Guid? CustomerId);
+    DateTime? ChosenAt, bool Contacted, bool GhostReported, int? SelectionNo, string Governorate, string? CustomerPhone, Guid? CustomerId,
+    DateTime? SentAt = null, string? Category = null, long? RequestMaxPrice = null);
 public sealed record LedgerDto(Guid Id, string Type, long Amount, string Note, DateTime At);
 public sealed record TopUpDto(Guid Id, string Method, string Ref, long Amount, DateTime At, string Status);
 public sealed record CreateTopUpDto(string Method, string TransactionRef, long Amount, string ReceiptKey);

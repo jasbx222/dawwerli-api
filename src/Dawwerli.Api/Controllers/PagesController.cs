@@ -7,7 +7,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace Dawwerli.Api.Controllers;
 
 [Route("api/v1"), Authorize(Roles = Roles.Page)]
-public sealed class PagesController(PageService pages, OfferService offers, OrderService orders, WalletService wallet, AdsService ads) : AppController
+public sealed class PagesController(PageService pages, OfferService offers, OrderService orders, WalletService wallet, AdsService ads,
+    PageStoreOrderService storeOrders) : AppController
 {
     private const int LedgerPageSize = 50;
 
@@ -36,7 +37,25 @@ public sealed class PagesController(PageService pages, OfferService offers, Orde
     public async Task<IActionResult> Withdraw(Guid id, CancellationToken ct) => From(await offers.WithdrawAsync(id, ct));
 
     [HttpGet("pages/me/offers"), HttpGet("pages/me/orders")]
-    public async Task<IActionResult> MyOffers(CancellationToken ct) => From(await pages.MyOffersAsync(ct));
+    public async Task<IActionResult> MyOffers([FromQuery] string? state, CancellationToken ct) => From(await pages.MyOffersAsync(ct, state));
+
+    /// <summary>Paged, filtered home feed of live requests (see PageService.FeedAsync).</summary>
+    [HttpGet("pages/me/feed")]
+    public async Task<IActionResult> Feed([FromQuery] int? categoryId, [FromQuery] string? since, [FromQuery] string? sort,
+        [FromQuery] long? minPrice, [FromQuery] long? maxPrice, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
+        From(await pages.FeedAsync(new PageFeedQuery(categoryId, since, sort, minPrice, maxPrice, page, pageSize), ct));
+
+    /// <summary>Product orders placed with this page's store. status: a store status code, or "active" / "closed".</summary>
+    [HttpGet("pages/me/store-orders")]
+    public async Task<IActionResult> StoreOrders([FromQuery] string? status, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
+        From(await storeOrders.ListAsync(status, page, pageSize, ct));
+
+    [HttpGet("pages/me/store-orders/{id:guid}")]
+    public async Task<IActionResult> StoreOrder(Guid id, CancellationToken ct) => From(await storeOrders.GetAsync(id, ct));
+
+    [HttpPost("pages/me/store-orders/{id:guid}/status")]
+    public async Task<IActionResult> StoreOrderStatus(Guid id, SetOrderStatusDto dto, CancellationToken ct) =>
+        From(await storeOrders.SetStatusAsync(id, dto, ct));
 
     [HttpPost("orders/{id:guid}/contacted")]
     public async Task<IActionResult> Contacted(Guid id, CancellationToken ct) => From(await orders.ContactedAsync(id, ct));

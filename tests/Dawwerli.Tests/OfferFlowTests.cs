@@ -27,8 +27,9 @@ public class OfferFlowTests(ApiFactory factory)
     }
 
     [Fact]
-    public async Task Early_access_pages_are_capped_at_two_slots_during_the_window()
+    public async Task Published_requests_are_open_to_every_page_right_away()
     {
+        // The early-access window was retired: a request is dispatched to all pages on publish.
         var c = await factory.ClientAsync();
         var admin = await Api.AdminAsync(c, factory);
         var early = new List<string>();
@@ -37,13 +38,8 @@ public class OfferFlowTests(ApiFactory factory)
         var customer = await Api.CustomerAsync(c);
         var req = await Api.RequestAsync(c, customer, Perfumes);
 
-        Assert.Equal(HttpStatusCode.OK, (await Api.OfferAsync(c, early[0], req)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await Api.OfferAsync(c, early[1], req)).StatusCode);
-        var third = await Api.OfferAsync(c, early[2], req);
-        Assert.Equal(HttpStatusCode.Conflict, third.StatusCode);
-        Assert.Equal("offer.early_full", (await third.ReadAsync()).GetProperty("code").GetString());
-        var tooSoon = await Api.OfferAsync(c, normal, req);
-        Assert.Equal(HttpStatusCode.Forbidden, tooSoon.StatusCode); // not dispatched to normal pages yet
+        foreach (var page in early) Assert.Equal(HttpStatusCode.OK, (await Api.OfferAsync(c, page, req)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Api.OfferAsync(c, normal, req)).StatusCode);
     }
 
     [Fact]
