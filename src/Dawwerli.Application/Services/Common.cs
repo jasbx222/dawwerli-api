@@ -18,6 +18,20 @@ public static class EnumText
 
     public static bool TryParse<T>(string? text, out T value) where T : struct, Enum =>
         Enum.TryParse(text?.Replace("_", ""), ignoreCase: true, out value) && Enum.IsDefined(value);
+
+    /// <summary>Accepts API codes (new, used, any) and the Arabic labels the customer app sends.</summary>
+    public static bool TryParseItemCondition(string? text, out ItemCondition value)
+    {
+        var normalized = text?.Trim().Replace(" ", "").Replace("_", "").Replace("-", "");
+        normalized = normalized switch
+        {
+            "جديد" or "جديدة" => "new",
+            "مستعمل" or "مستخدم" or "مستخدمة" => "used",
+            "أي" or "اي" or "الكل" or "أيحالة" or "ايحالة" => "any",
+            _ => normalized
+        };
+        return TryParse(normalized, out value);
+    }
 }
 
 public static class Errors

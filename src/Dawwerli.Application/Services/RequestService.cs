@@ -26,7 +26,7 @@ public sealed class RequestService(Shared s, DispatchService dispatch, AdsServic
     public async Task<Result<IdDto>> CreateAsync(CreateRequestDto dto, CancellationToken ct)
     {
         if (!EnumText.TryParse<InputMode>(dto.Mode, out var mode)) return Errors.BadEnum("mode");
-        if (!EnumText.TryParse<ItemCondition>(dto.Condition, out var condition)) return Errors.BadEnum("condition");
+        if (!EnumText.TryParseItemCondition(dto.Condition, out var condition)) return Errors.BadEnum("condition");
         var rules = await s.Rules(ct);
         var user = await Db.Users.FirstAsync(u => u.Id == s.Me.UserId, ct);
         if (user.IsBanned || user.PostingBannedUntil > s.Now)
@@ -34,6 +34,12 @@ public sealed class RequestService(Shared s, DispatchService dispatch, AdsServic
         var category = await Db.Categories.FirstOrDefaultAsync(c => c.Id == dto.CategoryId && c.IsActive, ct);
         if (category is null) return Error.NotFound("category");
         if (!await Db.Governorates.AnyAsync(g => g.Id == dto.GovernorateId, ct)) return Error.NotFound("governorate");
+        Page? target = null;
+        if (dto.PageId is { } pageId)
+        {
+            target = await Db.Pages.FirstOrDefaultAsync(p => p.Id == pageId, ct);
+            if (target is null) return Error.NotFound("page");
+        }
 
         var text = dto.Description?.Trim() ?? "";
         var banned = await Db.BannedKeywords.Select(b => b.Word).ToListAsync(ct);
@@ -56,13 +62,14 @@ public sealed class RequestService(Shared s, DispatchService dispatch, AdsServic
             CustomerId = user.Id, Number = await Db.NextNumberAsync("request_number", ct), Description = text, Mode = mode,
             MediaKey = dto.MediaKey, VoiceSeconds = dto.VoiceSeconds, CategoryId = category.Id, Condition = condition,
             MaxPrice = dto.MaxPrice, GovernorateId = dto.GovernorateId, Status = RequestStatus.Open,
-            Fields = JsonSerializer.Serialize(new { size = dto.Size, color = dto.Color }),
+            Fields = JsonSerializer.Serialize(new { size = dto.Size, color = dto.Color, pageId = dto.PageId }),
             ExpandsAt = s.Now.AddMinutes(rules.ExpandAfterMin), ExpiresAt = s.Now.AddHours(rules.ExpireAfterHours),
         };
         if (string.IsNullOrEmpty(r.Description)) r.Description = category.Name;
         Db.Requests.Add(r);
         await Db.SaveChangesAsync(ct);
-        await dispatch.PublishAsync(r, rules, ct);
+        if (target is null) await dispatch.PublishAsync(r, rules, ct);
+        else await dispatch.PublishToPageAsync(r, target, ct);
         await Db.SaveChangesAsync(ct);
         return new IdDto(r.Id);
     }
@@ -147,7 +154,8 @@ public sealed class RequestService(Shared s, DispatchService dispatch, AdsServic
         var r = res.Value!;
         if (r.IsLive) return Error.Conflict("request.state", "Request is still live");
         var fields = JsonSerializer.Deserialize<Dictionary<string, string?>>(r.Fields) ?? [];
+        Guid? pageId = Guid.TryParse(fields.GetValueOrDefault("pageId"), out var parsed) ? parsed : null;
         return await CreateAsync(new CreateRequestDto(r.Mode.Code(), r.MediaKey, r.Description, r.VoiceSeconds, r.CategoryId,
-            fields.GetValueOrDefault("size"), fields.GetValueOrDefault("color"), r.Condition.Code(), r.MaxPrice, r.GovernorateId, true), ct);
+            fields.GetValueOrDefault("size"), fields.GetValueOrDefault("color"), r.Condition.Code(), r.MaxPrice, r.GovernorateId, true, pageId), ct);
     }
 }

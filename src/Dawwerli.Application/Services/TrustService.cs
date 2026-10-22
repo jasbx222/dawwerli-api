@@ -45,9 +45,12 @@ public sealed class TrustService(Shared s, INotifier notifier, ITextCatalog text
     {
         if (!EnumText.TryParse<ReportTarget>(dto.Target, out var target)) return Errors.BadEnum("target");
         if (!EnumText.TryParse<ReportReason>(dto.Reason, out var reason)) return Errors.BadEnum("reason");
-        var exists = target == ReportTarget.Page
-            ? await Db.Pages.AnyAsync(p => p.Id == dto.TargetId, ct)
-            : await Db.Users.AnyAsync(u => u.Id == dto.TargetId, ct);
+        var exists = target switch
+        {
+            ReportTarget.Page => await Db.Pages.AnyAsync(p => p.Id == dto.TargetId, ct),
+            ReportTarget.Product => await Db.Products.AnyAsync(p => p.Id == dto.TargetId && p.DeletedAt == null, ct),
+            _ => await Db.Users.AnyAsync(u => u.Id == dto.TargetId, ct),
+        };
         if (!exists) return Error.NotFound(target.Code());
         var report = new Report
         {

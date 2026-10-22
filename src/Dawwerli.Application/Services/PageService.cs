@@ -32,6 +32,7 @@ public sealed class PageService(Shared s, IPhoneProtector phones)
             BioCode = new string(Enumerable.Range(0, BioCodeLength).Select(_ => BioCodeAlphabet[RandomNumberGenerator.GetInt32(BioCodeAlphabet.Length)]).ToArray()),
             Categories = cats.Select(c => new PageCategory { CategoryId = c }).ToList(),
             Governorates = govs.Select(g => new PageGovernorate { GovernorateId = g }).ToList(),
+            ImageKey = string.IsNullOrWhiteSpace(dto.ImageKey) ? null : dto.ImageKey.Trim(),
         };
         Db.Pages.Add(page);
         await Db.SaveChangesAsync(ct);
@@ -96,17 +97,25 @@ public sealed class PageService(Shared s, IPhoneProtector phones)
         if (!res.IsSuccess) return res.Error!;
         var page = res.Value!;
         var now = s.Now;
-        var rows = await Db.RequestDispatches.Where(d => d.PageId == page.Id)
-            .Join(Db.Requests.Include(r => r.Governorate).Include(r => r.Category), d => d.RequestId, r => r.Id, (d, r) => r)
+        var rows = await Db.Requests.AsNoTracking()
             .Where(r => r.Status == RequestStatus.Open || r.Status == RequestStatus.Expanded || r.Status == RequestStatus.Locked || r.Status == RequestStatus.Cancelled)
             .Where(r => r.ExpiresAt > now)
             .OrderByDescending(r => r.CreatedAt).Take(100)
-            .Select(r => new { r, Mine = Db.Offers.Any(o => o.RequestId == r.Id && o.PageId == page.Id) })
+            .Select(r => new
+            {
+                r.Id, r.Description, r.MediaKey, Governorate = r.Governorate!.Name, r.Condition, r.MaxPrice, r.CreatedAt,
+                r.OffersCount, r.EarlyUntil, r.EarlyOffersCount, r.Status, Category = r.Category!.Name,
+                Mine = Db.Offers.Any(o => o.RequestId == r.Id && o.PageId == page.Id),
+            })
             .ToListAsync(ct);
         await Db.RequestDispatches.Where(d => d.PageId == page.Id && d.SeenAt == null).ExecuteUpdateAsync(x => x.SetProperty(d => d.SeenAt, now), ct);
-        IReadOnlyList<InboxItemDto> list = rows.Select(x => new InboxItemDto(x.r.Id, x.r.Title, s.Url(x.r.MediaKey), x.r.Governorate!.Name,
-            x.r.Condition.Code(), x.r.MaxPrice, x.r.CreatedAt, x.r.OffersCount, x.r.EarlyUntil > x.r.CreatedAt ? x.r.EarlyUntil : null,
-            x.r.EarlyOffersCount, x.Mine, x.r.Status == RequestStatus.Cancelled, x.r.Category!.Name)).ToList();
+        IReadOnlyList<InboxItemDto> list = rows.Select(x =>
+        {
+            var title = x.Description.Length > 60 ? x.Description[..60] : x.Description;
+            return new InboxItemDto(x.Id, title, s.Url(x.MediaKey), x.Governorate, x.Condition.Code(), x.MaxPrice, x.CreatedAt,
+                x.OffersCount, x.EarlyUntil > x.CreatedAt ? x.EarlyUntil : null, x.EarlyOffersCount, x.Mine,
+                x.Status == RequestStatus.Cancelled, x.Category);
+        }).ToList();
         return Result<IReadOnlyList<InboxItemDto>>.Ok(list);
     }
 
@@ -139,7 +148,14 @@ public sealed class PageService(Shared s, IPhoneProtector phones)
                 order is null ? null : Shared.OrderNo(order.Number), order?.SelectedAt, order?.ContactedAt is not null,
                 order?.GhostReportedAt is not null, idx < 0 ? null : idx + 1, o.Request.Governorate!.Name, phone, order?.CustomerId);
         }).ToList();
-        return Result<IReadOnlyList<SellerOfferDto>>.Ok(list);
+        var offered = offers.Select(o => o.RequestId).ToHashSet();
+        var incoming = await Db.Requests.Include(r => r.Governorate)
+            .Where(r => r.Fields.Contains(page.Id.ToString()) && r.ExpiresAt > s.Now
+                && (r.Status == RequestStatus.Open || r.Status == RequestStatus.Expanded || r.Status == RequestStatus.Locked))
+            .OrderByDescending(r => r.CreatedAt).Take(50).ToListAsync(ct);
+        var directed = incoming.Where(r => !offered.Contains(r.Id)).Select(r => new SellerOfferDto(r.Id, r.Id, r.Title, s.Url(r.MediaKey),
+            r.MaxPrice, "incoming", null, null, null, false, false, null, r.Governorate?.Name ?? "", null, r.CustomerId));
+        return Result<IReadOnlyList<SellerOfferDto>>.Ok(directed.Concat(list).Take(100).ToList());
     }
 
     public async Task<Result<PageStandingDto>> StandingAsync(CancellationToken ct)

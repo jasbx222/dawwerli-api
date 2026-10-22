@@ -69,7 +69,9 @@ public sealed class AdsService(Shared s, WalletService wallet, ITextCatalog text
             return Error.Rule("ads.content", "Ad text has contact info or banned words");
         var rules = await s.Rules(ct);
         var price = DailyPrice(slot, rules);
-        if (rules.BillingEnabled && await wallet.AvailableAsync(page, rules, ct) < price) return Error.Payment("wallet.insufficient", "Top up your balance");
+        var total = price * dto.Days;
+        var available = rules.BillingEnabled ? await wallet.AvailableAsync(page, rules, ct) : page.Balance;
+        if (total > 0 && available < total) return Error.Payment("wallet.insufficient", "Top up your balance");
         var start = dto.StartAt < s.Now ? s.Now : dto.StartAt;
         var ad = new AdCampaign
         {
@@ -78,6 +80,11 @@ public sealed class AdsService(Shared s, WalletService wallet, ITextCatalog text
             StartAt = start, EndAt = start.AddDays(dto.Days), DailyPrice = price, Status = AdStatus.Pending, ImageKey = dto.ImageKey,
             DeepLink = dto.DeepLink ?? $"/pages/p/{page.Id}",
         };
+        if (total > 0)
+        {
+            wallet.Post(page, LedgerType.AdCharge, -total, texts.Get("ledger.adCharge", ad.Title), refId: ad.Id);
+            ad.LastChargedOn = ad.EndAt.Date;
+        }
         Db.AdCampaigns.Add(ad);
         await Db.SaveChangesAsync(ct);
         return await ToDtoAsync(ad, ct);
@@ -96,9 +103,11 @@ public sealed class AdsService(Shared s, WalletService wallet, ITextCatalog text
     public async Task<Result> PauseAsync(Guid id, CancellationToken ct)
     {
         var page = await s.MyPageAsync(ct);
-        var ad = await Db.AdCampaigns.FirstOrDefaultAsync(a => a.Id == id && a.PageId == page!.Id, ct);
+        if (page is null) return Errors.NotPage;
+        var ad = await Db.AdCampaigns.FirstOrDefaultAsync(a => a.Id == id && a.PageId == page.Id, ct);
         if (ad is null) return Error.NotFound("ad");
         if (ad.Status is not (AdStatus.Active or AdStatus.Pending)) return Error.Conflict("ad.state", "Ad is not running");
+        await RefundUnusedAsync(ad, page, ct);
         ad.Status = AdStatus.Ended;
         ad.EndAt = s.Now;
         await Db.SaveChangesAsync(ct);
@@ -129,24 +138,42 @@ public sealed class AdsService(Shared s, WalletService wallet, ITextCatalog text
         return Result.Ok();
     }
 
-    /// <summary>Daily job: charge running page ads, pause on low balance, end expired ones.</summary>
+    /// <summary>Gives back unused prepaid days. Pending ads are refunded in full.</summary>
+    public async Task RefundUnusedAsync(AdCampaign ad, Page page, CancellationToken ct)
+    {
+        if (ad.DailyPrice <= 0) return;
+        var charged = await Db.LedgerEntries.Where(e => e.RefId == ad.Id && e.PageId == page.Id && e.Type == LedgerType.AdCharge).SumAsync(e => (long?)e.Amount, ct) ?? 0;
+        var refunded = await Db.LedgerEntries.Where(e => e.RefId == ad.Id && e.PageId == page.Id && e.Type == LedgerType.AdRefund).SumAsync(e => (long?)e.Amount, ct) ?? 0;
+        var held = -(charged + refunded);
+        if (held <= 0) return;
+        var unused = ad.Status == AdStatus.Pending ? BookedDays(ad) : (int)Math.Floor((ad.EndAt - s.Now).TotalDays);
+        var refund = ad.Status == AdStatus.Pending ? held : Math.Min(held, Math.Max(0, unused) * ad.DailyPrice);
+        if (refund <= 0) return;
+        wallet.Post(page, LedgerType.AdRefund, refund, texts.Get("ledger.refund", ad.Title), refId: ad.Id);
+    }
+
+    /// <summary>Ends expired ads and charges any page ad that was booked without a payment.</summary>
     public async Task ChargeDailyAsync(CancellationToken ct)
     {
-        var rules = await s.Rules(ct);
-        var today = s.Now.Date;
         await Db.AdCampaigns.Where(a => a.Status == AdStatus.Active && a.EndAt <= s.Now)
             .ExecuteUpdateAsync(x => x.SetProperty(a => a.Status, AdStatus.Ended), ct);
-        if (!rules.BillingEnabled) return;
-        var due = await Db.AdCampaigns.Include(a => a.Page).Where(a => a.Status == AdStatus.Active && a.PageId != null && a.StartAt <= s.Now
-            && (a.LastChargedOn == null || a.LastChargedOn < today)).ToListAsync(ct);
+        var due = await Db.AdCampaigns.Include(a => a.Page).Where(a => a.PageId != null && a.DailyPrice > 0 && a.LastChargedOn == null
+            && (a.Status == AdStatus.Pending || a.Status == AdStatus.Active)).ToListAsync(ct);
         foreach (var ad in due)
         {
             var page = ad.Page!;
-            if (await wallet.AvailableAsync(page, rules, ct) < ad.DailyPrice) { ad.Status = AdStatus.PausedBalance; continue; }
-            wallet.Post(page, LedgerType.AdCharge, -ad.DailyPrice, texts.Get("ledger.adCharge", ad.Title), refId: ad.Id);
-            ad.LastChargedOn = today;
+            var total = ad.DailyPrice * BookedDays(ad);
+            if (page.Balance < total) { ad.Status = AdStatus.PausedBalance; continue; }
+            wallet.Post(page, LedgerType.AdCharge, -total, texts.Get("ledger.adCharge", ad.Title), refId: ad.Id);
+            ad.LastChargedOn = ad.EndAt.Date;
         }
         await Db.SaveChangesAsync(ct);
+    }
+
+    private static int BookedDays(AdCampaign ad)
+    {
+        var days = (int)Math.Round((ad.EndAt - ad.StartAt).TotalDays);
+        return days < 1 ? 1 : days;
     }
 
     public async Task<AdDto> ToDtoAsync(AdCampaign a, CancellationToken ct)

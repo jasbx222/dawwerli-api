@@ -13,4 +13,7 @@ public static class TrustPolicy
     /// <summary>Selection fee owed for a page's next selection (0 while free or billing is off).</summary>
     public static long SelectionFee(int freeUsed, BusinessRules r) =>
         !r.BillingEnabled || freeUsed < r.FreeSelections ? 0 : r.SelectionFee;
+
+    /// <summary>Amount taken from the page balance when it submits an offer.</summary>
+    public static long OfferFee(BusinessRules r) => r.OfferFee > 0 ? r.OfferFee : 500;
 }

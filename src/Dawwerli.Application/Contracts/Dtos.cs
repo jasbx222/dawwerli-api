@@ -29,7 +29,7 @@ public sealed record MediaDto(string Key, string Url);
 
 // ---- requests
 public sealed record CreateRequestDto(string Mode, string? MediaKey, string? Description, int? VoiceSeconds, int CategoryId,
-    string? Size, string? Color, string Condition, long MaxPrice, int GovernorateId, bool ReadyToBuy);
+    string? Size, string? Color, string Condition, long MaxPrice, int GovernorateId, bool ReadyToBuy, Guid? PageId = null);
 public sealed record IdDto(Guid Id);
 public sealed record RequestSummaryDto(Guid Id, long Number, string Title, string? Image, string Status, int OffersCount, int MaxOffers, DateTime CreatedAt, Guid? OrderId);
 public sealed record AdBannerDto(Guid Id, Guid? PageId, string PageName, string Title, string Headline, int DiscountPercent, string? Image, string? DeepLink);
@@ -64,7 +64,7 @@ public sealed record CreateDisputeDto(Guid? OrderId, Guid? SubjectId, string Typ
 public sealed record DisputeViewDto(Guid Id, Guid? OrderId, Guid? SubjectId, string Type, string Status, string Text, string? Decision, DateTime CreatedAt, DateTime DecideBy);
 
 // ---- pages
-public sealed record RegisterPageDto(string Name, string Instagram, IReadOnlyList<int> CategoryIds, IReadOnlyList<int> GovernorateIds, bool AcceptTerms);
+public sealed record RegisterPageDto(string Name, string Instagram, IReadOnlyList<int> CategoryIds, IReadOnlyList<int> GovernorateIds, bool AcceptTerms, string? ImageKey = null);
 public sealed record PageSettingsDto(bool Receiving, bool Sound, IReadOnlyList<int> CategoryIds, IReadOnlyList<int> GovernorateIds, int From, int To, IReadOnlyList<int> Days);
 public sealed record PageMeDto(Guid Id, string Name, string Instagram, string Status, string? RejectReason, string BioCode, double Rating, int RatingCount,
     int Deals, bool Trusted, int FreeUsed, int FreeSelections, long Balance, DateTime? EarlyAccessUntil, DateTime? SuspendedUntil, string? Image, string? Bio,
