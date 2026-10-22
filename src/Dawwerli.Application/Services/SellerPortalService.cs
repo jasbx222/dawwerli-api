@@ -11,7 +11,7 @@ namespace Dawwerli.Application.Services;
 
 /// <summary>Web seller portal: email + password sign-in (lockout, no 2FA) and the page's own products, orders and stats.</summary>
 public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller seller, IPasswordHasher passwords, ISellerTokenService tokens,
-    IOptions<SellerPortalOptions> portal, StoreOrderDesk desk, FollowerNotifier followers)
+    IOptions<SellerPortalOptions> portal, StoreOrderDesk desk, FollowerNotifier followers, CourierService couriers)
 {
     private IAppDbContext Db => kit.Db;
     private static readonly Error BadCredentials = Error.Unauthorized("auth.credentials", "Wrong email or password");
@@ -193,6 +193,32 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         var c = await ContextAsync(ct);
         if (!c.IsSuccess) return c.Error!;
         return await desk.MoveAsync(seller.PageId, seller.AccountId, id, dto, hideClosedPhone: false, ct);
+    }
+
+    // ---------- couriers ----------
+
+    public async Task<Result<IReadOnlyList<CourierDto>>> CouriersAsync(CancellationToken ct)
+    {
+        var c = await ContextAsync(ct);
+        return c.IsSuccess ? await couriers.ListForPageAsync(seller.PageId, ct) : c.Error!;
+    }
+
+    public async Task<Result<CourierDto>> CreateCourierAsync(UpsertCourierDto dto, CancellationToken ct)
+    {
+        var c = await ContextAsync(ct);
+        return c.IsSuccess ? await couriers.CreateForPageAsync(seller.PageId, dto, ct) : c.Error!;
+    }
+
+    public async Task<Result<CourierDto>> UpdateCourierAsync(Guid id, UpsertCourierDto dto, CancellationToken ct)
+    {
+        var c = await ContextAsync(ct);
+        return c.IsSuccess ? await couriers.UpdateForPageAsync(seller.PageId, id, dto, ct) : c.Error!;
+    }
+
+    public async Task<Result> DeleteCourierAsync(Guid id, CancellationToken ct)
+    {
+        var c = await ContextAsync(ct);
+        return c.IsSuccess ? await couriers.DeleteForPageAsync(seller.PageId, id, ct) : c.Error!;
     }
 
     // ---------- stats ----------

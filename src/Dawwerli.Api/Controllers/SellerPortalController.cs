@@ -31,5 +31,12 @@ public sealed class SellerPortalController(SellerPortalService portal) : AppCont
 
     [HttpGet("orders/{id:guid}")] public async Task<IActionResult> Order(Guid id, CancellationToken ct) => From(await portal.OrderAsync(id, ct));
     [HttpPost("orders/{id:guid}/status")] public async Task<IActionResult> Status(Guid id, SetOrderStatusDto dto, CancellationToken ct) => From(await portal.SetStatusAsync(id, dto, ct));
+
+    /// <summary>The page's couriers; pass courierId when moving an order to outForDelivery.</summary>
+    [HttpGet("couriers")] public async Task<IActionResult> Couriers(CancellationToken ct) => From(await portal.CouriersAsync(ct));
+    [HttpPost("couriers")] public async Task<IActionResult> AddCourier(UpsertCourierDto dto, CancellationToken ct) => From(await portal.CreateCourierAsync(dto, ct));
+    [HttpPut("couriers/{id:guid}")] public async Task<IActionResult> EditCourier(Guid id, UpsertCourierDto dto, CancellationToken ct) => From(await portal.UpdateCourierAsync(id, dto, ct));
+    [HttpDelete("couriers/{id:guid}")] public async Task<IActionResult> DeleteCourier(Guid id, CancellationToken ct) => From(await portal.DeleteCourierAsync(id, ct));
+
     [HttpGet("stats")] public async Task<IActionResult> Stats(CancellationToken ct) => From(await portal.StatsAsync(ct));
 }

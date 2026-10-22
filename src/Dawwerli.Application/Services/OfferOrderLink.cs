@@ -138,32 +138,44 @@ public sealed class CourierService(Shared s)
 
     private static readonly Error BadPhone = Error.Validation("courier.phone", "رقم المندوب لازم يكون رقم عراقي مثل 07701234567");
 
-    public async Task<Result<IReadOnlyList<CourierDto>>> ListAsync(CancellationToken ct)
+    public async Task<Result<IReadOnlyList<CourierDto>>> ListAsync(CancellationToken ct) =>
+        await s.MyPageAsync(ct) is { } page ? await ListForPageAsync(page.Id, ct) : Errors.NotPage;
+
+    public async Task<Result<CourierDto>> CreateAsync(UpsertCourierDto dto, CancellationToken ct) =>
+        await s.MyPageAsync(ct) is { } page ? await CreateForPageAsync(page.Id, dto, ct) : Errors.NotPage;
+
+    public async Task<Result<CourierDto>> UpdateAsync(Guid id, UpsertCourierDto dto, CancellationToken ct) =>
+        await s.MyPageAsync(ct) is { } page ? await UpdateForPageAsync(page.Id, id, dto, ct) : Errors.NotPage;
+
+    public async Task<Result> DeleteAsync(Guid id, CancellationToken ct) =>
+        await s.MyPageAsync(ct) is { } page ? await DeleteForPageAsync(page.Id, id, ct) : Errors.NotPage;
+
+    /// <summary>Admin view of any page's couriers (read only).</summary>
+    public async Task<Result<IReadOnlyList<CourierDto>>> AdminListAsync(Guid pageId, CancellationToken ct) =>
+        await Db.Pages.AnyAsync(p => p.Id == pageId, ct) ? await ListForPageAsync(pageId, ct) : Error.NotFound("page");
+
+    // Page-scoped core, shared by the app (pages/me) and the web seller portal.
+
+    public async Task<Result<IReadOnlyList<CourierDto>>> ListForPageAsync(Guid pageId, CancellationToken ct)
     {
-        var page = await s.MyPageAsync(ct);
-        if (page is null) return Errors.NotPage;
-        var rows = await Db.Couriers.Where(c => c.PageId == page.Id && c.DeletedAt == null).OrderByDescending(c => c.Active).ThenBy(c => c.Name).ToListAsync(ct);
+        var rows = await Db.Couriers.Where(c => c.PageId == pageId && c.DeletedAt == null).OrderByDescending(c => c.Active).ThenBy(c => c.Name).ToListAsync(ct);
         return rows.Select(ToDto).ToList();
     }
 
-    public async Task<Result<CourierDto>> CreateAsync(UpsertCourierDto dto, CancellationToken ct)
+    public async Task<Result<CourierDto>> CreateForPageAsync(Guid pageId, UpsertCourierDto dto, CancellationToken ct)
     {
-        var page = await s.MyPageAsync(ct);
-        if (page is null) return Errors.NotPage;
         if (NormalizePhone(dto.Phone) is not { } phone) return BadPhone;
-        if (await Db.Couriers.CountAsync(c => c.PageId == page.Id && c.DeletedAt == null, ct) >= 50)
+        if (await Db.Couriers.CountAsync(c => c.PageId == pageId && c.DeletedAt == null, ct) >= 50)
             return Error.Rule("courier.limit", "وصلت الحد الأعلى للمناديب");
-        var c = new Courier { PageId = page.Id, Name = dto.Name.Trim(), Phone = phone, Active = dto.Active };
+        var c = new Courier { PageId = pageId, Name = dto.Name.Trim(), Phone = phone, Active = dto.Active };
         Db.Couriers.Add(c);
         await Db.SaveChangesAsync(ct);
         return ToDto(c);
     }
 
-    public async Task<Result<CourierDto>> UpdateAsync(Guid id, UpsertCourierDto dto, CancellationToken ct)
+    public async Task<Result<CourierDto>> UpdateForPageAsync(Guid pageId, Guid id, UpsertCourierDto dto, CancellationToken ct)
     {
-        var page = await s.MyPageAsync(ct);
-        if (page is null) return Errors.NotPage;
-        var c = await Db.Couriers.FirstOrDefaultAsync(x => x.Id == id && x.PageId == page.Id && x.DeletedAt == null, ct);
+        var c = await Db.Couriers.FirstOrDefaultAsync(x => x.Id == id && x.PageId == pageId && x.DeletedAt == null, ct);
         if (c is null) return Error.NotFound("courier");
         if (NormalizePhone(dto.Phone) is not { } phone) return BadPhone;
         c.Name = dto.Name.Trim();
@@ -174,11 +186,9 @@ public sealed class CourierService(Shared s)
     }
 
     /// <summary>Soft delete: orders that already went out keep the courier's snapshot.</summary>
-    public async Task<Result> DeleteAsync(Guid id, CancellationToken ct)
+    public async Task<Result> DeleteForPageAsync(Guid pageId, Guid id, CancellationToken ct)
     {
-        var page = await s.MyPageAsync(ct);
-        if (page is null) return Errors.NotPage;
-        var c = await Db.Couriers.FirstOrDefaultAsync(x => x.Id == id && x.PageId == page.Id && x.DeletedAt == null, ct);
+        var c = await Db.Couriers.FirstOrDefaultAsync(x => x.Id == id && x.PageId == pageId && x.DeletedAt == null, ct);
         if (c is null) return Error.NotFound("courier");
         c.DeletedAt = s.Now;
         c.Active = false;
