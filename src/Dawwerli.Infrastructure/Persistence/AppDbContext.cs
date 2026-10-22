@@ -47,6 +47,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IClock 
     public DbSet<ProductRating> ProductRatings => Set<ProductRating>();
     public DbSet<StoreOrder> StoreOrders => Set<StoreOrder>();
     public DbSet<StoreOrderItem> StoreOrderItems => Set<StoreOrderItem>();
+    public DbSet<StoreOrderEvent> StoreOrderEvents => Set<StoreOrderEvent>();
     public DbSet<SellerAccount> SellerAccounts => Set<SellerAccount>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default) =>

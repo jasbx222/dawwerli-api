@@ -252,6 +252,17 @@ internal sealed class StoreOrderConfig : IEntityTypeConfiguration<StoreOrder>
         b.HasIndex(x => new { x.CustomerUserId, x.CreatedAt });
         b.Property(x => x.Address).HasMaxLength(500);
         b.HasMany(x => x.Items).WithOne().HasForeignKey(i => i.OrderId);
+        b.HasMany(x => x.History).WithOne().HasForeignKey(e => e.OrderId);
+    }
+}
+
+internal sealed class StoreOrderEventConfig : IEntityTypeConfiguration<StoreOrderEvent>
+{
+    public void Configure(EntityTypeBuilder<StoreOrderEvent> b)
+    {
+        // Ids are set in code; events added to a tracked order must insert, not update.
+        b.Property(x => x.Id).ValueGeneratedNever();
+        b.HasIndex(x => new { x.OrderId, x.At });
     }
 }
 

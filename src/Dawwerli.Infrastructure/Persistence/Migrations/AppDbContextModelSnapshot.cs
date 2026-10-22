@@ -1758,6 +1758,33 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.ToTable("store_orders", (string)null);
                 });
 
+            modelBuilder.Entity("Dawwerli.Domain.Entities.StoreOrderEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.HasKey("Id")
+                        .HasName("pk_store_order_events");
+
+                    b.HasIndex("OrderId", "At")
+                        .HasDatabaseName("ix_store_order_events_order_id_at");
+
+                    b.ToTable("store_order_events", (string)null);
+                });
+
             modelBuilder.Entity("Dawwerli.Domain.Entities.StoreOrderItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2252,6 +2279,16 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.Navigation("Page");
                 });
 
+            modelBuilder.Entity("Dawwerli.Domain.Entities.StoreOrderEvent", b =>
+                {
+                    b.HasOne("Dawwerli.Domain.Entities.StoreOrder", null)
+                        .WithMany("History")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_store_order_events_store_orders_order_id");
+                });
+
             modelBuilder.Entity("Dawwerli.Domain.Entities.StoreOrderItem", b =>
                 {
                     b.HasOne("Dawwerli.Domain.Entities.StoreOrder", null)
@@ -2281,6 +2318,8 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Dawwerli.Domain.Entities.StoreOrder", b =>
                 {
+                    b.Navigation("History");
+
                     b.Navigation("Items");
                 });
 #pragma warning restore 612, 618

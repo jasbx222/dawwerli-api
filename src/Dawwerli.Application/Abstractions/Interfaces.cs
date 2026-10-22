@@ -44,6 +44,7 @@ public interface IAppDbContext
     DbSet<ProductRating> ProductRatings { get; }
     DbSet<StoreOrder> StoreOrders { get; }
     DbSet<StoreOrderItem> StoreOrderItems { get; }
+    DbSet<StoreOrderEvent> StoreOrderEvents { get; }
     DbSet<SellerAccount> SellerAccounts { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     EntityEntry<T> Entry<T>(T entity) where T : class;

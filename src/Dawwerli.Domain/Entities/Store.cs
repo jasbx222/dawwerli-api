@@ -75,6 +75,24 @@ public class StoreOrder : Entity
     public string? StatusReason { get; set; }
     public DateTime StatusChangedAt { get; set; }
     public List<StoreOrderItem> Items { get; set; } = [];
+    /// <summary>Every status the order reached, oldest first (the customer's timeline).</summary>
+    public List<StoreOrderEvent> History { get; set; } = [];
+
+    public void Record(StoreOrderStatus status, DateTime at)
+    {
+        Status = status;
+        StatusChangedAt = at;
+        History.Add(new StoreOrderEvent { OrderId = Id, Status = status, At = at });
+    }
+}
+
+/// <summary>One step of a store order's status timeline.</summary>
+public class StoreOrderEvent
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid OrderId { get; set; }
+    public StoreOrderStatus Status { get; set; }
+    public DateTime At { get; set; }
 }
 
 /// <summary>Snapshot of the product at checkout (name/price can change later).</summary>

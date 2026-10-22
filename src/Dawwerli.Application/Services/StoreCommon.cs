@@ -62,11 +62,12 @@ public sealed class StoreKit(Shared s, IOptions<StoreOptions> options)
         return texts.Select(t => ContactFilter.FindBanned(t, banned)).FirstOrDefault(w => w is not null);
     }
 
-    public IQueryable<StoreOrder> Orders => Db.StoreOrders.Include(o => o.Items).Include(o => o.Page);
+    public IQueryable<StoreOrder> Orders => Db.StoreOrders.Include(o => o.Items).Include(o => o.History).Include(o => o.Page).AsSplitQuery();
 
     public StoreOrderDto ToDto(StoreOrder o) => new(o.Id, Shared.OrderNo(o.Number), o.PageId, o.Page?.Name ?? "", o.Status.Code(),
         o.PaymentMethod.Code(), o.PaymentStatus.Code(), o.Address, o.GovernorateId, o.Note, o.Subtotal, o.Commission, o.StatusReason,
-        o.Items.Select(i => new StoreOrderItemDto(i.ProductId, i.Name, i.UnitPrice, i.Quantity, s.Url(i.ImageKey))).ToList(), o.CreatedAt, o.StatusChangedAt);
+        o.Items.Select(i => new StoreOrderItemDto(i.ProductId, i.Name, i.UnitPrice, i.Quantity, s.Url(i.ImageKey))).ToList(), o.CreatedAt, o.StatusChangedAt,
+        o.History.OrderBy(e => e.At).Select(e => new StoreOrderEventDto(e.Status.Code(), e.At)).ToList());
 
     public SellerProductDto ToSellerDto(Product p) => new(p.Id, p.Name, p.Description, p.Price, p.ImageKeys, p.ImageKeys.Select(s.Url).ToList(),
         p.CategoryId, p.Stock, p.Active, p.HiddenByAdmin, p.Available, p.CreatedAt, p.Rating, p.RatingCount);

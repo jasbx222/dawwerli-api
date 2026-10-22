@@ -40,7 +40,8 @@ public sealed record CheckoutResultDto(Guid OrderId, string No, string Status, s
 public sealed record StoreOrderItemDto(Guid ProductId, string Name, long UnitPrice, int Quantity, string? ImageUrl);
 public sealed record StoreOrderDto(Guid Id, string No, Guid PageId, string PageName, string Status, string PaymentMethod, string PaymentStatus,
     string Address, int? GovernorateId, string? Note, long Subtotal, long Commission, string? StatusReason,
-    IReadOnlyList<StoreOrderItemDto> Items, DateTime CreatedAt, DateTime StatusChangedAt);
+    IReadOnlyList<StoreOrderItemDto> Items, DateTime CreatedAt, DateTime StatusChangedAt, IReadOnlyList<StoreOrderEventDto> History);
+public sealed record StoreOrderEventDto(string Status, DateTime At);
 public sealed record SellerOrderDto(StoreOrderDto Order, string? CustomerName, string? CustomerPhone);
 public sealed record SetOrderStatusDto(string Status, string? Reason);
 

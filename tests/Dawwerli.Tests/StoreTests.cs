@@ -710,4 +710,27 @@ public class StoreTests(ApiFactory factory)
         Assert.DoesNotContain(Password, hash);
         Assert.Contains('.', hash);
     }
+
+    [Fact]
+    public async Task Order_history_lists_each_reached_status_with_its_time()
+    {
+        var c = await factory.ClientAsync();
+        var s = await SellerAsync(c, await Api.AdminAsync(c, factory));
+        var p = await ProductIdAsync(c, s.Token);
+        var customer = await Api.CustomerAsync(c);
+        var delivered = OrderId(await CheckoutAsync(c, customer, p, 1));
+        await DeliverAsync(c, s, delivered);
+        var cancelled = OrderId(await CheckoutAsync(c, customer, p, 1));
+        (await c.SendAsync(Req("POST", $"/api/v1/store/orders/{cancelled}/cancel", customer))).EnsureSuccessStatusCode();
+
+        async Task<List<JsonElement>> History(string id) =>
+            (await (await c.SendAsync(Req("GET", $"/api/v1/store/orders/{id}", customer))).ReadAsync()).GetProperty("history").EnumerateArray().ToList();
+        var steps = await History(delivered);
+        Assert.Equal(["new", "accepted", "outForDelivery", "delivered"], steps.Select(e => e.GetProperty("status").GetString()!));
+        var times = steps.Select(e => e.GetProperty("at").GetDateTime()).ToList();
+        Assert.Equal(times.Order(), times);
+        Assert.Equal(["new", "cancelled"], (await History(cancelled)).Select(e => e.GetProperty("status").GetString()!));
+        var list = (await (await c.SendAsync(Req("GET", "/api/v1/store/orders", customer))).ReadAsync()).GetProperty("items");
+        Assert.All(list.EnumerateArray(), o => Assert.True(o.GetProperty("history").GetArrayLength() >= 2));
+    }
 }

@@ -207,9 +207,8 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         var o = await kit.Orders.FirstOrDefaultAsync(x => x.Id == id && x.PageId == seller.PageId, ct);
         if (o is null) return StoreErrors.OrderNotFound;
         if (!StoreOrderFlow.SellerCanMove(o.Status, to)) return StoreErrors.BadTransition;
-        o.Status = to;
+        o.Record(to, s.Now);
         o.StatusReason = dto.Reason?.Trim();
-        o.StatusChangedAt = s.Now;
         if (StoreOrderFlow.RestoresStock(to)) await kit.RestoreStockAsync(o, ct);
         AuditStatus(o, to);
         await Db.SaveChangesAsync(ct);

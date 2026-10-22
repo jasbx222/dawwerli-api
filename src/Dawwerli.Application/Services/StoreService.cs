@@ -252,6 +252,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
             Items = items.Select(i => new StoreOrderItem { ProductId = i.ProductId, Name = i.Product!.Name, UnitPrice = i.Product.Price,
                 Quantity = i.Quantity, ImageKey = i.Product.ImageKeys.FirstOrDefault() }).ToList(),
         };
+        order.History.Add(new StoreOrderEvent { OrderId = order.Id, Status = StoreOrderStatus.New, At = now });
         order.Subtotal = order.Items.Sum(i => i.UnitPrice * i.Quantity);
         order.Commission = StoreOrderFlow.CommissionOf(order.Subtotal, order.CommissionPercent);
         Db.StoreOrders.Add(order);
@@ -297,8 +298,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
         var o = await kit.Orders.FirstOrDefaultAsync(x => x.Id == id && x.CustomerUserId == Me, ct);
         if (o is null) return StoreErrors.OrderNotFound;
         if (!StoreOrderFlow.CustomerCanCancel(o.Status)) return StoreErrors.BadTransition;
-        o.Status = StoreOrderStatus.Cancelled;
-        o.StatusChangedAt = s.Now;
+        o.Record(StoreOrderStatus.Cancelled, s.Now);
         await kit.RestoreStockAsync(o, ct);
         await Db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
