@@ -49,6 +49,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IClock 
     public DbSet<StoreOrderItem> StoreOrderItems => Set<StoreOrderItem>();
     public DbSet<StoreOrderEvent> StoreOrderEvents => Set<StoreOrderEvent>();
     public DbSet<SellerAccount> SellerAccounts => Set<SellerAccount>();
+    public DbSet<PageFollow> PageFollows => Set<PageFollow>();
 
     public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken ct = default) =>
         Database.CurrentTransaction is null ? Database.BeginTransactionAsync(ct) : Task.FromResult<IDbContextTransaction>(new NoopTransaction());
@@ -61,8 +62,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options, IClock 
 
     public Task RefreshProductRatingAsync(Guid productId, CancellationToken ct = default) =>
         Database.ExecuteSqlInterpolatedAsync($@"UPDATE products SET
-            rating = COALESCE((SELECT round(avg(stars)::numeric, 1) FROM product_ratings WHERE product_id = {productId}), 0)::double precision,
-            rating_count = (SELECT count(*) FROM product_ratings WHERE product_id = {productId})
+            rating = COALESCE((SELECT round(avg(stars)::numeric, 1) FROM product_ratings WHERE product_id = {productId} AND NOT hidden_by_admin), 0)::double precision,
+            rating_count = (SELECT count(*) FROM product_ratings WHERE product_id = {productId} AND NOT hidden_by_admin)
             WHERE id = {productId}", ct);
 
     public Task LockPageAsync(Guid pageId, CancellationToken ct = default) =>
