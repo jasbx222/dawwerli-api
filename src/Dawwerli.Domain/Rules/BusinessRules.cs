@@ -38,6 +38,8 @@ public sealed class BusinessRules
     public int TrustedDeals { get; set; }
     public bool BillingEnabled { get; set; }
     public long SelectionFee { get; set; }
+    /// <summary>Charged from the page balance on every offer. 0 uses 500 IQD.</summary>
+    public long OfferFee { get; set; }
     public int FreeSelections { get; set; }
     public long EarlyAccessMonthly { get; set; }
     public int EarlyAccessDays { get; set; }

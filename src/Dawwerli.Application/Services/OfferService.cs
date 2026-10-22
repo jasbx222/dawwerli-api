@@ -29,13 +29,11 @@ public sealed class OfferService(Shared s, WalletService wallet, TrustService tr
 
     public async Task<Result<IdDto>> SubmitAsync(Guid requestId, SubmitOfferDto dto, CancellationToken ct)
     {
-        if (!EnumText.TryParse<ItemCondition>(dto.Condition, out var condition)) return Errors.BadEnum("condition");
+        if (!EnumText.TryParseItemCondition(dto.Condition, out var condition)) return Errors.BadEnum("condition");
         var pageRes = await s.ActivePageAsync(ct);
         if (!pageRes.IsSuccess) return pageRes.Error!;
         var page = pageRes.Value!;
         var rules = await s.Rules(ct);
-        if (!await Db.RequestDispatches.AnyAsync(d => d.RequestId == requestId && d.PageId == page.Id, ct))
-            return Error.Forbidden("offer.not_dispatched", "This request was not sent to your page");
 
         await using var tx = await Db.BeginTransactionAsync(ct);
         await Db.LockRequestAsync(requestId, ct);
@@ -47,8 +45,10 @@ public sealed class OfferService(Shared s, WalletService wallet, TrustService tr
         if (await Db.Offers.AnyAsync(o => o.RequestId == r.Id && o.PageId == page.Id, ct))
             return Error.Conflict("offer.duplicate", "You already sent an offer");
         if (await s.IsBlockedAsync(page.UserId, r.CustomerId, ct)) return Error.Forbidden("offer.blocked", "Blocked");
-        if (await wallet.AvailableAsync(page, rules, ct) < TrustPolicy.SelectionFee(page.FreeSelectionsUsed, rules))
-            return Error.Payment("wallet.insufficient", "Top up your balance");
+        await Db.Entry(page).ReloadAsync(ct);
+        var fee = TrustPolicy.OfferFee(rules);
+        if (page.Balance < fee)
+            return Error.Payment("wallet.insufficient", $"رصيدك ما يكفي. كل عرض يخصم {fee} دينار");
 
         var early = OfferPolicy.IsEarlyOffer(r, now);
         var sponsored = r.SponsoredOfferId is null && await Db.AdCampaigns.AnyAsync(a => a.PageId == page.Id &&
@@ -61,6 +61,7 @@ public sealed class OfferService(Shared s, WalletService wallet, TrustService tr
         };
         Db.Offers.Add(offer);
         if (sponsored) r.SponsoredOfferId = offer.Id;
+        wallet.Post(page, LedgerType.SelectionFee, -fee, texts.Get("ledger.offerFee", r.Title), null, offer.Id);
         r.OffersCount++;
         if (early) r.EarlyOffersCount++;
         if (r.OffersCount >= rules.MaxOffers) r.Status = RequestStatus.Locked;

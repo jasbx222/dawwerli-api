@@ -34,13 +34,17 @@ builder.Services.AddScoped<ValidationFilter>();
 builder.Services.AddControllers(o => o.Filters.AddService<ValidationFilter>());
 builder.Services.AddProblemDetails();
 
-var jwt = config.GetSection(JwtOptions.Section).Get<JwtOptions>()!;
+var jwt = config.GetSection(JwtOptions.Section).Get<JwtOptions>() ?? new JwtOptions();
+var jwtKey = Encoding.UTF8.GetBytes(jwt.SigningKey ?? "");
+if (jwtKey.Length < 32)
+    Console.Error.WriteLine("Jwt:SigningKey is missing or shorter than 32 characters. Authenticated requests will be rejected.");
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
 {
     o.TokenValidationParameters = new TokenValidationParameters
     {
         ValidIssuer = jwt.Issuer, ValidAudience = jwt.Audience,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
+        ValidateIssuerSigningKey = jwtKey.Length >= 32,
+        IssuerSigningKey = jwtKey.Length >= 32 ? new SymmetricSecurityKey(jwtKey) : null,
         ClockSkew = TimeSpan.FromSeconds(30),
     };
     o.Events = new JwtBearerEvents
@@ -56,18 +60,26 @@ builder.Services.AddAuthorization(o => o.AddPolicy(Roles.SellerPortalPolicy, p =
     .RequireClaim(SellerPortalClaims.Scope, SellerPortalClaims.ScopeValue)));
 
 var limits = config.GetSection("RateLimits");
+int PositiveLimit(string name, int fallback)
+{
+    var value = limits.GetValue<int?>(name);
+    return value is > 0 ? value.Value : fallback;
+}
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    var otpPerMinute = PositiveLimit("OtpPerMinute", 10);
+    var adminLoginPerMinute = PositiveLimit("AdminLoginPerMinute", 5);
+    var globalPerMinute = PositiveLimit("GlobalPerMinute", 300);
     o.AddPolicy(RateLimitPolicies.Otp, ctx => RateLimitPartition.GetFixedWindowLimiter(
         ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions { PermitLimit = limits.GetValue<int>("OtpPerMinute"), Window = TimeSpan.FromMinutes(1) }));
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = otpPerMinute, Window = TimeSpan.FromMinutes(1) }));
     o.AddPolicy(RateLimitPolicies.AdminLogin, ctx => RateLimitPartition.GetFixedWindowLimiter(
         ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions { PermitLimit = limits.GetValue<int>("AdminLoginPerMinute"), Window = TimeSpan.FromMinutes(1) }));
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = adminLoginPerMinute, Window = TimeSpan.FromMinutes(1) }));
     o.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx => RateLimitPartition.GetFixedWindowLimiter(
         ctx.User.Identity?.IsAuthenticated == true ? ctx.User.Identity.Name ?? ctx.Connection.RemoteIpAddress?.ToString() ?? "u" : ctx.Connection.RemoteIpAddress?.ToString() ?? "anon",
-        _ => new FixedWindowRateLimiterOptions { PermitLimit = limits.GetValue<int>("GlobalPerMinute"), Window = TimeSpan.FromMinutes(1) }));
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = globalPerMinute, Window = TimeSpan.FromMinutes(1) }));
 });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -107,6 +119,7 @@ if (config.GetValue<bool>("Swagger:Enabled"))
 }
 
 app.UseCors();
+app.UseStaticFiles();
 app.UseMiddleware<AppVersionMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -114,6 +127,10 @@ app.UseRateLimiter();
 app.MapControllers();
 app.MapHub<LiveHub>(LiveHub.Path);
 app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
+var sellerIndex = Path.Combine(app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot"), "seller", "index.html");
+IResult SellerHtml() => File.Exists(sellerIndex) ? Results.File(sellerIndex, "text/html; charset=utf-8") : Results.NotFound();
+app.MapGet("/seller", SellerHtml);
+app.MapFallback("/seller/{*path:nonfile}", SellerHtml);
 
 if (config.GetValue("Database:MigrateAndSeedOnStartup", true))
 {

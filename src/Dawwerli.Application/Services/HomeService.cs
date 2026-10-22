@@ -56,7 +56,13 @@ public sealed class HomeService(Shared s, AdsService ads, RequestService request
         var live = user is null ? null : await Db.Requests.Where(r => r.CustomerId == user.Id &&
                 (r.Status == RequestStatus.Open || r.Status == RequestStatus.Expanded || r.Status == RequestStatus.Locked))
             .OrderByDescending(r => r.CreatedAt).FirstOrDefaultAsync(ct);
-        var unread = user is not null && await Db.Notifications.AnyAsync(n => n.UserId == user.Id && n.ReadAt == null, ct);
+        var unread = false;
+        if (user is not null)
+        {
+            var notices = Db.Notifications.Where(n => n.UserId == user.Id && n.ReadAt == null);
+            notices = s.Me.Role == UserRole.Page ? notices.Where(n => n.Route.StartsWith("/seller")) : notices.Where(n => !n.Route.StartsWith("/seller"));
+            unread = await notices.AnyAsync(ct);
+        }
 
         return new HomeDto(user?.Name?.Split(' ')[0], user?.Area, govName, unread,
             localPages.Select(p => new StoryDto(p.Id, p.Name, s.Url(p.ImageKey), false)).ToList(),

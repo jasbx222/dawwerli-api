@@ -69,7 +69,12 @@ public sealed class PhoneProtector(IDataProtectionProvider dp, IOptions<Security
 
     public string Hash(string phone) => Convert.ToHexString(HMACSHA256.HashData(_key, Encoding.UTF8.GetBytes(Normalize(phone))));
     public string Encrypt(string phone) => _p.Protect(Normalize(phone));
-    public string Decrypt(string cipher) => string.IsNullOrEmpty(cipher) ? "" : _p.Unprotect(cipher);
+    public string Decrypt(string cipher)
+    {
+        if (string.IsNullOrEmpty(cipher)) return "";
+        try { return _p.Unprotect(cipher); }
+        catch (CryptographicException) { return ""; }
+    }
 }
 
 public sealed class Pbkdf2PasswordHasher : IPasswordHasher
