@@ -4,12 +4,18 @@ using Dawwerli.Application.Contracts;
 using Dawwerli.Domain.Common;
 using Dawwerli.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Dawwerli.Application.Services;
 
-public sealed class PageService(Shared s, IPhoneProtector phones)
+public sealed class PageService(Shared s, IPhoneProtector phones, IOptions<RegionOptions> region)
 {
     private IAppDbContext Db => s.Db;
+    private readonly TimeZoneInfo _tz = TimeZoneInfo.FindSystemTimeZoneById(region.Value.TimeZone);
+    public const int FeedDefaultPageSize = 20, FeedMaxPageSize = 50, FeedMaxPageNumber = 10_000;
+    public static readonly string[] FeedSince = ["all", "today", "week", "month"];
+    public static readonly string[] FeedSorts = ["newest", "oldest", "priceAsc", "priceDesc"];
+    public static readonly string[] OfferStates = ["incoming", "waiting", "chosen", "notChosen", "withdrawn", "closed"];
     private const string BioCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private const int BioCodeLength = 6;
     private const int ReplySample = 50;
@@ -91,6 +97,76 @@ public sealed class PageService(Shared s, IPhoneProtector phones)
         return ToSettings(p);
     }
 
+    /// <summary>
+    /// Home feed for a page: live customer requests it can still offer on, filtered and paged on the server.
+    /// since: all | today (Baghdad calendar day) | week (7 days) | month (30 days).
+    /// sort: newest | oldest | priceAsc | priceDesc (on the customer's max price). Prices filter the max price, inclusive.
+    /// </summary>
+    public async Task<Result<PagedDto<InboxItemDto>>> FeedAsync(PageFeedQuery q, CancellationToken ct)
+    {
+        var res = await s.ActivePageAsync(ct);
+        if (!res.IsSuccess) return res.Error!;
+        var page = res.Value!;
+        var since = Pick(q.Since, FeedSince, "all");
+        if (since is null) return Errors.BadEnum("since");
+        var sort = Pick(q.Sort, FeedSorts, "newest");
+        if (sort is null) return Errors.BadEnum("sort");
+        if (q.MinPrice < 0 || q.MaxPrice < 0) return Error.Validation("price.invalid", "Prices cannot be negative");
+        if (q.MinPrice is { } lo && q.MaxPrice is { } hi && lo > hi) return Error.Validation("price.range", "Minimum price is above the maximum");
+        if (q.CategoryId is <= 0) return Errors.BadEnum("categoryId");
+        if (q.Page is < 1 || q.PageSize is < 1) return Error.Validation("paging.invalid", "Page and page size start at 1");
+        var pageNo = Math.Min(q.Page ?? 1, FeedMaxPageNumber);
+        var size = Math.Min(q.PageSize ?? FeedDefaultPageSize, FeedMaxPageSize);
+
+        var now = s.Now;
+        var rq = Db.Requests.AsNoTracking()
+            .Where(r => (r.Status == RequestStatus.Open || r.Status == RequestStatus.Expanded) && r.ExpiresAt > now);
+        if (q.CategoryId is { } cat) rq = rq.Where(r => r.CategoryId == cat);
+        if (q.MinPrice is { } min) rq = rq.Where(r => r.MaxPrice >= min);
+        if (q.MaxPrice is { } max) rq = rq.Where(r => r.MaxPrice <= max);
+        DateTime? from = since switch
+        {
+            "today" => TodayStartUtc(now),
+            "week" => now.AddDays(-7),
+            "month" => now.AddDays(-30),
+            _ => null,
+        };
+        if (from is { } f) rq = rq.Where(r => r.CreatedAt >= f);
+        var total = await rq.CountAsync(ct);
+        rq = sort switch
+        {
+            "oldest" => rq.OrderBy(r => r.CreatedAt).ThenBy(r => r.Id),
+            "priceAsc" => rq.OrderBy(r => r.MaxPrice).ThenByDescending(r => r.CreatedAt).ThenBy(r => r.Id),
+            "priceDesc" => rq.OrderByDescending(r => r.MaxPrice).ThenByDescending(r => r.CreatedAt).ThenBy(r => r.Id),
+            _ => rq.OrderByDescending(r => r.CreatedAt).ThenBy(r => r.Id),
+        };
+        var rows = await rq.Skip((pageNo - 1) * size).Take(size)
+            .Select(r => new
+            {
+                r.Id, r.Description, r.MediaKey, Governorate = r.Governorate!.Name, r.Condition, r.MaxPrice, r.CreatedAt,
+                r.OffersCount, r.EarlyUntil, r.EarlyOffersCount, r.Status, Category = r.Category!.Name, r.CategoryId,
+                Mine = Db.Offers.Any(o => o.RequestId == r.Id && o.PageId == page.Id),
+            })
+            .ToListAsync(ct);
+        if (pageNo == 1)
+            await Db.RequestDispatches.Where(d => d.PageId == page.Id && d.SeenAt == null).ExecuteUpdateAsync(x => x.SetProperty(d => d.SeenAt, now), ct);
+        var items = rows.Select(x => new InboxItemDto(x.Id, Shorten(x.Description), s.Url(x.MediaKey), x.Governorate, x.Condition.Code(), x.MaxPrice,
+            x.CreatedAt, x.OffersCount, x.EarlyUntil > x.CreatedAt ? x.EarlyUntil : null, x.EarlyOffersCount, x.Mine, false, x.Category, x.CategoryId)).ToList();
+        return new PagedDto<InboxItemDto>(items, total, pageNo, size);
+    }
+
+    private DateTime TodayStartUtc(DateTime nowUtc)
+    {
+        var local = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc), _tz).Date;
+        return DateTime.SpecifyKind(TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), _tz), DateTimeKind.Utc);
+    }
+
+    /// <summary>Case-insensitive match against the allowed values; blank picks the default, unknown gives null.</summary>
+    private static string? Pick(string? value, string[] allowed, string fallback) =>
+        string.IsNullOrWhiteSpace(value) ? fallback : allowed.FirstOrDefault(a => a.Equals(value.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private static string Shorten(string d) => d.Length > 60 ? d[..60] : d;
+
     public async Task<Result<IReadOnlyList<InboxItemDto>>> InboxAsync(CancellationToken ct)
     {
         var res = await s.ActivePageAsync(ct);
@@ -104,7 +180,7 @@ public sealed class PageService(Shared s, IPhoneProtector phones)
             .Select(r => new
             {
                 r.Id, r.Description, r.MediaKey, Governorate = r.Governorate!.Name, r.Condition, r.MaxPrice, r.CreatedAt,
-                r.OffersCount, r.EarlyUntil, r.EarlyOffersCount, r.Status, Category = r.Category!.Name,
+                r.OffersCount, r.EarlyUntil, r.EarlyOffersCount, r.Status, Category = r.Category!.Name, r.CategoryId,
                 Mine = Db.Offers.Any(o => o.RequestId == r.Id && o.PageId == page.Id),
             })
             .ToListAsync(ct);
@@ -114,17 +190,39 @@ public sealed class PageService(Shared s, IPhoneProtector phones)
             var title = x.Description.Length > 60 ? x.Description[..60] : x.Description;
             return new InboxItemDto(x.Id, title, s.Url(x.MediaKey), x.Governorate, x.Condition.Code(), x.MaxPrice, x.CreatedAt,
                 x.OffersCount, x.EarlyUntil > x.CreatedAt ? x.EarlyUntil : null, x.EarlyOffersCount, x.Mine,
-                x.Status == RequestStatus.Cancelled, x.Category);
+                x.Status == RequestStatus.Cancelled, x.Category, x.CategoryId);
         }).ToList();
         return Result<IReadOnlyList<InboxItemDto>>.Ok(list);
     }
 
-    public async Task<Result<IReadOnlyList<SellerOfferDto>>> MyOffersAsync(CancellationToken ct)
+    /// <param name="state">Optional: incoming | waiting | chosen | notChosen | withdrawn | closed. Unknown values are rejected.</param>
+    public async Task<Result<IReadOnlyList<SellerOfferDto>>> MyOffersAsync(CancellationToken ct, string? state = null)
     {
         var page = await s.MyPageAsync(ct);
         if (page is null) return Errors.NotPage;
-        var offers = await Db.Offers.Include(o => o.Request).ThenInclude(r => r!.Governorate).Where(o => o.PageId == page.Id)
-            .OrderByDescending(o => o.CreatedAt).Take(100).ToListAsync(ct);
+        string? only = null;
+        if (!string.IsNullOrWhiteSpace(state))
+        {
+            only = OfferStates.FirstOrDefault(x => x.Equals(state.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (only is null) return Errors.BadEnum("state");
+        }
+        var oq = Db.Offers.Include(o => o.Request).ThenInclude(r => r!.Governorate).Include(o => o.Request).ThenInclude(r => r!.Category)
+            .Where(o => o.PageId == page.Id);
+        var now = s.Now;
+        oq = only switch
+        {
+            "chosen" => oq.Where(o => o.Status == OfferStatus.Selected),
+            "notChosen" => oq.Where(o => o.Status == OfferStatus.NotSelected),
+            "withdrawn" => oq.Where(o => o.Status == OfferStatus.Withdrawn),
+            "waiting" => oq.Where(o => o.Status == OfferStatus.Active && (o.Request!.Status == RequestStatus.Open
+                || o.Request.Status == RequestStatus.Expanded || o.Request.Status == RequestStatus.Locked)),
+            "closed" => oq.Where(o => o.Status != OfferStatus.Selected && o.Status != OfferStatus.NotSelected && o.Status != OfferStatus.Withdrawn
+                && !(o.Status == OfferStatus.Active && (o.Request!.Status == RequestStatus.Open
+                    || o.Request.Status == RequestStatus.Expanded || o.Request.Status == RequestStatus.Locked))),
+            "incoming" => oq.Where(o => false),
+            _ => oq,
+        };
+        var offers = await oq.OrderByDescending(o => o.CreatedAt).Take(100).ToListAsync(ct);
         var ids = offers.Select(o => o.Id).ToList();
         var orders = await Db.Orders.Where(o => ids.Contains(o.OfferId)).ToListAsync(ct);
         var selectionNos = await Db.LedgerEntries.Where(e => e.PageId == page.Id && (e.Type == LedgerType.FreeSelection || e.Type == LedgerType.SelectionFee))
@@ -146,15 +244,20 @@ public sealed class PageService(Shared s, IPhoneProtector phones)
             var idx = order is null ? -1 : selectionNos.IndexOf(order.Id);
             return new SellerOfferDto(o.Id, o.RequestId, o.Request!.Title, s.Url(o.PhotoKey), o.Price, state, order?.Id,
                 order is null ? null : Shared.OrderNo(order.Number), order?.SelectedAt, order?.ContactedAt is not null,
-                order?.GhostReportedAt is not null, idx < 0 ? null : idx + 1, o.Request.Governorate!.Name, phone, order?.CustomerId);
+                order?.GhostReportedAt is not null, idx < 0 ? null : idx + 1, o.Request.Governorate!.Name, phone, order?.CustomerId,
+                o.CreatedAt, o.Request.Category?.Name, o.Request.MaxPrice);
         }).ToList();
+        if (only is not null && only != "incoming") return Result<IReadOnlyList<SellerOfferDto>>.Ok(list);
         var offered = offers.Select(o => o.RequestId).ToHashSet();
-        var incoming = await Db.Requests.Include(r => r.Governorate)
-            .Where(r => r.Fields.Contains(page.Id.ToString()) && r.ExpiresAt > s.Now
+        // Requests made inside this page carry its id in the jsonb fields; match the key itself (a text LIKE does not work on jsonb).
+        var pageKey = page.Id.ToString();
+        var incoming = await Db.Requests.FromSqlInterpolated($"SELECT *, xmin FROM requests WHERE fields ->> 'pageId' = {pageKey}")
+            .Include(r => r.Governorate)
+            .Where(r => r.ExpiresAt > s.Now
                 && (r.Status == RequestStatus.Open || r.Status == RequestStatus.Expanded || r.Status == RequestStatus.Locked))
             .OrderByDescending(r => r.CreatedAt).Take(50).ToListAsync(ct);
         var directed = incoming.Where(r => !offered.Contains(r.Id)).Select(r => new SellerOfferDto(r.Id, r.Id, r.Title, s.Url(r.MediaKey),
-            r.MaxPrice, "incoming", null, null, null, false, false, null, r.Governorate?.Name ?? "", null, r.CustomerId));
+            r.MaxPrice, "incoming", null, null, null, false, false, null, r.Governorate?.Name ?? "", null, r.CustomerId, r.CreatedAt, null, r.MaxPrice));
         return Result<IReadOnlyList<SellerOfferDto>>.Ok(directed.Concat(list).Take(100).ToList());
     }
 

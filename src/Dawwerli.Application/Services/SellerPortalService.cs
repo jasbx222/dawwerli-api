@@ -11,7 +11,7 @@ namespace Dawwerli.Application.Services;
 
 /// <summary>Web seller portal: email + password sign-in (lockout, no 2FA) and the page's own products, orders and stats.</summary>
 public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller seller, IPasswordHasher passwords, ISellerTokenService tokens,
-    IOptions<SellerPortalOptions> portal, INotifier notifier, ITextCatalog texts, IPhoneProtector phones)
+    IOptions<SellerPortalOptions> portal, StoreOrderDesk desk)
 {
     private IAppDbContext Db => kit.Db;
     private static readonly Error BadCredentials = Error.Unauthorized("auth.credentials", "Wrong email or password");
@@ -177,56 +177,22 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
     {
         var c = await ContextAsync(ct);
         if (!c.IsSuccess) return c.Error!;
-        var (p, n) = kit.Paging(pageNo, size);
-        var q = kit.Orders.Where(o => o.PageId == seller.PageId);
-        if (status is not null)
-        {
-            if (!EnumText.TryParse<StoreOrderStatus>(status, out var st)) return Errors.BadEnum("status");
-            q = q.Where(o => o.Status == st);
-        }
-        var total = await q.CountAsync(ct);
-        var rows = await q.OrderByDescending(o => o.CreatedAt).Skip((p - 1) * n).Take(n).ToListAsync(ct);
-        var ids = rows.Select(r => r.CustomerUserId).Distinct().ToList();
-        var users = await Db.Users.Where(u => ids.Contains(u.Id)).ToDictionaryAsync(u => u.Id, ct);
-        return new PagedDto<SellerOrderDto>(rows.Select(o => ToSellerOrder(o, users.GetValueOrDefault(o.CustomerUserId))).ToList(), total, p, n);
+        return await desk.ListAsync(seller.PageId, status, pageNo, size, allowGroups: false, hideClosedPhone: false, ct);
     }
 
     public async Task<Result<SellerOrderDto>> OrderAsync(Guid id, CancellationToken ct)
     {
         var c = await ContextAsync(ct);
         if (!c.IsSuccess) return c.Error!;
-        var o = await kit.Orders.FirstOrDefaultAsync(x => x.Id == id && x.PageId == seller.PageId, ct);
-        if (o is null) return StoreErrors.OrderNotFound;
-        return ToSellerOrder(o, await Db.Users.FirstOrDefaultAsync(u => u.Id == o.CustomerUserId, ct));
+        return await desk.GetAsync(seller.PageId, id, hideClosedPhone: false, ct);
     }
 
     public async Task<Result<SellerOrderDto>> SetStatusAsync(Guid id, SetOrderStatusDto dto, CancellationToken ct)
     {
         var c = await ContextAsync(ct);
         if (!c.IsSuccess) return c.Error!;
-        if (!EnumText.TryParse<StoreOrderStatus>(dto.Status, out var to)) return Errors.BadEnum("status");
-        await using var tx = await Db.BeginTransactionAsync(ct);
-        await Db.LockStoreOrderAsync(id, ct);
-        var o = await kit.Orders.FirstOrDefaultAsync(x => x.Id == id && x.PageId == seller.PageId, ct);
-        if (o is null) return StoreErrors.OrderNotFound;
-        if (!StoreOrderFlow.SellerCanMove(o.Status, to)) return StoreErrors.BadTransition;
-        o.Record(to, s.Now);
-        o.StatusReason = dto.Reason?.Trim();
-        if (StoreOrderFlow.RestoresStock(to)) await kit.RestoreStockAsync(o, ct);
-        AuditStatus(o, to);
-        await Db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
-        await notifier.NotifyAsync(o.CustomerUserId, texts.Get("store.status.title", Shared.OrderNo(o.Number)),
-            texts.Get($"store.status.{to.Code()}"), $"/store/orders/{o.Id}", ct);
-        return ToSellerOrder(o, await Db.Users.FirstOrDefaultAsync(u => u.Id == o.CustomerUserId, ct));
+        return await desk.MoveAsync(seller.PageId, seller.AccountId, id, dto, hideClosedPhone: false, ct);
     }
-
-    private void AuditStatus(StoreOrder o, StoreOrderStatus to) =>
-        Db.AuditLogs.Add(new AuditLog { ActorUserId = seller.AccountId, Action = "store_order.status", EntityName = nameof(StoreOrder),
-            EntityId = o.Id.ToString(), Data = JsonSerializer.Serialize(new { to = to.Code() }) });
-
-    private SellerOrderDto ToSellerOrder(StoreOrder o, User? u) =>
-        new(kit.ToDto(o), u?.Name, u is null || string.IsNullOrEmpty(u.PhoneEncrypted) ? null : phones.Decrypt(u.PhoneEncrypted));
 
     // ---------- stats ----------
 

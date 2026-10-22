@@ -117,8 +117,19 @@ public static class Api
             new { name = $"p{phone}", instagram = $"p{phone}", categoryIds = new[] { categoryId }, governorateIds = new[] { 1 }, acceptTerms = true }, t))).ReadAsync();
         (await c.SendAsync(Post($"/api/admin/v1/pages/{page.GetProperty("id").GetString()}/verify", null, admin))).EnsureSuccessStatusCode();
         t = await LoginAsync(c, "page", phone);
+        await FundAsync(c, admin, t, 200000);
         if (earlyAccess) (await c.SendAsync(Post("/api/v1/pages/me/subscriptions/early-access", null, t))).EnsureSuccessStatusCode();
         return t;
+    }
+
+    /// <summary>Tops up a page wallet and approves it so offers and subscriptions can be paid for.</summary>
+    public static async Task FundAsync(HttpClient c, string admin, string page, long amount)
+    {
+        var topUp = await c.SendAsync(Post("/api/v1/pages/me/topups",
+            new { method = "ZainCash", transactionRef = $"T{Guid.NewGuid():N}", amount, receiptKey = "receipts/x.webp" }, page));
+        topUp.EnsureSuccessStatusCode();
+        var id = (await topUp.ReadAsync()).GetProperty("id").GetString();
+        (await c.SendAsync(Post($"/api/admin/v1/topups/{id}/approve", null, admin))).EnsureSuccessStatusCode();
     }
 
     public static async Task<string> CustomerAsync(HttpClient c)

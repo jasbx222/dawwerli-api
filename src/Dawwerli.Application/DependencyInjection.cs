@@ -25,6 +25,8 @@ public static class DependencyInjection
         services.AddScoped<AdminService>();
         services.AddScoped<LifecycleService>();
         services.AddScoped<StoreKit>();
+        services.AddScoped<StoreOrderDesk>();
+        services.AddScoped<PageStoreOrderService>();
         services.AddScoped<StoreService>();
         services.AddScoped<SellerPortalService>();
         services.AddScoped<AdminStoreService>();
