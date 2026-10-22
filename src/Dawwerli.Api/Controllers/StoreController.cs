@@ -8,7 +8,7 @@ namespace Dawwerli.Api.Controllers;
 
 /// <summary>Customer app: a page's products, top-rated pages' products for home, one-page cart, checkout and store orders.</summary>
 [Route("api/v1"), Authorize(Roles = Roles.Customer)]
-public sealed class StoreController(StoreService store) : AppController
+public sealed class StoreController(StoreService store, DiscoveryService discover) : AppController
 {
     [AllowAnonymous, HttpGet("pages/{pageId:guid}/products")]
     public async Task<IActionResult> PageProducts(Guid pageId, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
@@ -17,6 +17,31 @@ public sealed class StoreController(StoreService store) : AppController
     [AllowAnonymous, HttpGet("products/top-rated")]
     public async Task<IActionResult> TopRated([FromQuery] int? pages, [FromQuery] int? perPage, CancellationToken ct) =>
         Ok(await store.TopRatedProductsAsync(pages, perPage, ct));
+
+    /// <summary>Home «الأكثر مبيعاً»: the app shows the first 10 and opens the rest with «عرض المزيد».</summary>
+    [AllowAnonymous, HttpGet("products/best-selling")]
+    public async Task<IActionResult> BestSelling([FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
+        Ok(await discover.BestSellingAsync(page, pageSize, ct));
+
+    /// <summary>Home «الأعلى تقييماً», by each product's own rating.</summary>
+    [AllowAnonymous, HttpGet("products/highest-rated")]
+    public async Task<IActionResult> HighestRated([FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
+        Ok(await discover.HighestRatedAsync(page, pageSize, ct));
+
+    [AllowAnonymous, HttpGet("pages/top")]
+    public async Task<IActionResult> TopPages([FromQuery] int? take, CancellationToken ct) => Ok(await discover.TopPagesAsync(take, ct));
+
+    /// <summary>The pages tab. following=true lists only pages I follow (needs sign-in).</summary>
+    [AllowAnonymous, HttpGet("pages/directory")]
+    public async Task<IActionResult> Directory([FromQuery] string? q, [FromQuery] int? categoryId, [FromQuery] bool following,
+        [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
+        Ok(await discover.DirectoryAsync(q, categoryId, following, page, pageSize, ct));
+
+    [AllowAnonymous, HttpGet("pages/{id:guid}/profile")]
+    public async Task<IActionResult> Profile(Guid id, CancellationToken ct) => From(await discover.ProfileAsync(id, ct));
+
+    [HttpPost("pages/{id:guid}/follow")] public async Task<IActionResult> Follow(Guid id, CancellationToken ct) => From(await discover.FollowAsync(id, ct));
+    [HttpDelete("pages/{id:guid}/follow")] public async Task<IActionResult> Unfollow(Guid id, CancellationToken ct) => From(await discover.UnfollowAsync(id, ct));
 
     [AllowAnonymous, HttpGet("products/{id:guid}")] public async Task<IActionResult> Product(Guid id, CancellationToken ct) => From(await store.ProductAsync(id, ct));
     [HttpGet("favorites")] public async Task<IActionResult> Favorites(CancellationToken ct) => Ok(await store.FavoritesAsync(ct));
@@ -27,6 +52,8 @@ public sealed class StoreController(StoreService store) : AppController
     public async Task<IActionResult> Ratings(Guid id, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
         From(await store.ReviewsAsync(id, page, pageSize, ct));
     [HttpGet("products/{id:guid}/ratings/mine")] public async Task<IActionResult> MyRating(Guid id, CancellationToken ct) => From(await store.MyRatingAsync(id, ct));
+    /// <summary>Rate once (stars + optional comment). A second rating is 409 rating.duplicate; edit with PUT.</summary>
+    [HttpPost("products/{id:guid}/ratings")] public async Task<IActionResult> CreateRating(Guid id, RateProductDto dto, CancellationToken ct) => From(await store.CreateRatingAsync(id, dto, ct));
     [HttpPut("products/{id:guid}/rating")] public async Task<IActionResult> Rate(Guid id, RateProductDto dto, CancellationToken ct) => From(await store.RateAsync(id, dto, ct));
 
     [HttpPost("products/{id:guid}/report")] public async Task<IActionResult> Report(Guid id, ReportProductDto dto, CancellationToken ct) => From(await store.ReportAsync(id, dto, ct));

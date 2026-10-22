@@ -68,7 +68,7 @@ public sealed record RegisterPageDto(string Name, string Instagram, IReadOnlyLis
 public sealed record PageSettingsDto(bool Receiving, bool Sound, IReadOnlyList<int> CategoryIds, IReadOnlyList<int> GovernorateIds, int From, int To, IReadOnlyList<int> Days);
 public sealed record PageMeDto(Guid Id, string Name, string Instagram, string Status, string? RejectReason, string BioCode, double Rating, int RatingCount,
     int Deals, bool Trusted, int FreeUsed, int FreeSelections, long Balance, DateTime? EarlyAccessUntil, DateTime? SuspendedUntil, string? Image, string? Bio,
-    PageSettingsDto Settings, string? Phone);
+    PageSettingsDto Settings, string? Phone, int FollowerCount = 0);
 public sealed record InboxItemDto(Guid Id, string Title, string? Image, string Governorate, string Condition, long MaxPrice, DateTime PostedAt,
     int Offers, DateTime? EarlyUntil, int EarlyTaken, bool OfferedByMe, bool Cancelled, string Category, int CategoryId = 0);
 /// <summary>Filters for the page home feed. All fields are optional; see PageService.FeedAsync for the accepted values.</summary>
@@ -121,7 +121,7 @@ public sealed record UpsertCategoryDto(string Slug, string Name, string? Emoji, 
 public sealed record KeywordDto(string Word);
 public sealed record KpiDto(int RequestsToday, int Requests7d, int Requests30d, double PctWithOffer, double? MedianFirstOfferMin, double SelectionRate,
     double ReceiptRate, double ComplaintRate, long Revenue, long AdsRevenue, int ActivePages, int PendingPages, int PendingTopUps, int OpenDisputes);
-public sealed record AdminPageDto(Guid Id, string Name, string Instagram, string Status, string BioCode, double Rating, int Deals, long Balance, DateTime CreatedAt, string? Phone, DateTime? SuspendedUntil);
+public sealed record AdminPageDto(Guid Id, string Name, string Instagram, string Status, string BioCode, double Rating, int Deals, long Balance, DateTime CreatedAt, string? Phone, DateTime? SuspendedUntil, int FollowerCount = 0, int? FeaturedOrder = null);
 public sealed record AuditDto(Guid Id, Guid ActorUserId, string Action, string Entity, string EntityId, string Data, DateTime At);
 
 public sealed record AdminTopUpDto(Guid Id, Guid PageId, string PageName, string Method, string Ref, long Amount, string? ReceiptUrl, DateTime At, string Status);

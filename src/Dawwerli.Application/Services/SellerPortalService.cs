@@ -11,7 +11,7 @@ namespace Dawwerli.Application.Services;
 
 /// <summary>Web seller portal: email + password sign-in (lockout, no 2FA) and the page's own products, orders and stats.</summary>
 public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller seller, IPasswordHasher passwords, ISellerTokenService tokens,
-    IOptions<SellerPortalOptions> portal, StoreOrderDesk desk)
+    IOptions<SellerPortalOptions> portal, StoreOrderDesk desk, FollowerNotifier followers)
 {
     private IAppDbContext Db => kit.Db;
     private static readonly Error BadCredentials = Error.Unauthorized("auth.credentials", "Wrong email or password");
@@ -109,6 +109,7 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         Db.Products.Add(p);
         await Db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);
+        if (p.Visible) await followers.NewProductAsync(page, p, ct);
         return kit.ToSellerDto(p);
     }
 

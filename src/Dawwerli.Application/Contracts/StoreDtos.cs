@@ -12,7 +12,8 @@ public sealed record SellerProductDto(Guid Id, string Name, string Description, 
 public sealed record ProductCardDto(Guid Id, string Name, long Price, string? ImageUrl, bool Available,
     string Description = "", int Stock = 0, double Rating = 0, int RatingCount = 0);
 public sealed record ProductDetailsDto(Guid Id, Guid PageId, string PageName, string Name, string Description, long Price,
-    IReadOnlyList<string?> ImageUrls, int CategoryId, int Stock, bool Available, double Rating = 0, int RatingCount = 0);
+    IReadOnlyList<string?> ImageUrls, int CategoryId, int Stock, bool Available, double Rating = 0, int RatingCount = 0,
+    bool HasRated = false, ProductReviewDto? MyReview = null, bool IsFavorite = false);
 public sealed record TopRatedProductDto(Guid Id, Guid PageId, string PageName, double PageRating, int PageRatingCount, string Name, string Description,
     long Price, string? ImageUrl, int Stock, bool Available, double Rating = 0, int RatingCount = 0);
 
@@ -56,3 +57,18 @@ public sealed record SellerAccountDto(Guid Id, Guid PageId, string PageName, str
 public sealed record AdminProductDto(Guid Id, Guid PageId, string PageName, string Name, long Price, int Stock, bool Active, bool HiddenByAdmin, bool Deleted, DateTime CreatedAt);
 public sealed record StoreSettingsDto(int MaxProductsPerPage, double CommissionPercent);
 public sealed record PageProductLimitDto(int? Limit);
+
+// Customer discovery: home strips, pages directory, page profile, follows
+public sealed record DiscoverProductDto(Guid Id, Guid PageId, string PageName, string Name, string Description, long Price, string? ImageUrl,
+    int Stock, bool Available, double Rating, int RatingCount, int Sold);
+public sealed record PageCardDto(Guid Id, string Name, string? Image, string? Bio, double Rating, int RatingCount, int Deals, bool Trusted,
+    int ProductCount, int FollowerCount, bool IsFollowing, IReadOnlyList<string> Categories, IReadOnlyList<string?> Previews, int? FeaturedOrder);
+public sealed record PageProfileDto(Guid Id, string Name, string? Image, string? Bio, double Rating, int RatingCount, int Deals, bool Trusted,
+    IReadOnlyList<string> Categories, IReadOnlyList<string> Governorates, int MemberSince,
+    int ProductCount, int FollowerCount, int OrderCount, bool IsFollowing);
+public sealed record FollowStateDto(Guid PageId, bool IsFollowing, int FollowerCount);
+public sealed record SetFeaturedOrderDto(int? Order);
+public sealed record ReorderFeaturedDto(IReadOnlyList<Guid> PageIds);
+public sealed record AdminReviewDto(Guid Id, Guid ProductId, string ProductName, Guid PageId, string PageName, string CustomerName,
+    int Stars, string Comment, bool HiddenByAdmin, DateTime UpdatedAt);
+public sealed record AdminFeaturedPageDto(Guid Id, string Name, string? Image, int Order, double Rating, int FollowerCount);

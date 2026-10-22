@@ -28,6 +28,18 @@ public sealed class AdminStoreController(AdminStoreService store) : AppControlle
     [Authorize(Roles = AdminRoles.Moderation), HttpPost("products/{id:guid}/unhide")]
     public async Task<IActionResult> Unhide(Guid id, CancellationToken ct) => From(await store.SetHiddenAsync(id, false, ct));
 
+    [Authorize(Roles = AdminRoles.Moderation), HttpGet("reviews")]
+    public async Task<IActionResult> Reviews([FromQuery] Guid? productId, [FromQuery] Guid? pageId, [FromQuery] bool? hidden, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
+        Ok(await store.ReviewsAsync(productId, pageId, hidden, page, pageSize, ct));
+    [Authorize(Roles = AdminRoles.Moderation), HttpPost("reviews/{id:guid}/hide")]
+    public async Task<IActionResult> HideReview(Guid id, CancellationToken ct) => From(await store.SetReviewHiddenAsync(id, true, ct));
+    [Authorize(Roles = AdminRoles.Moderation), HttpPost("reviews/{id:guid}/unhide")]
+    public async Task<IActionResult> UnhideReview(Guid id, CancellationToken ct) => From(await store.SetReviewHiddenAsync(id, false, ct));
+
+    [HttpGet("pages/featured")] public async Task<IActionResult> Featured(CancellationToken ct) => Ok(await store.FeaturedPagesAsync(ct));
+    [Authorize(Roles = AdminRoles.Super), HttpPut("pages/featured")]
+    public async Task<IActionResult> SetFeatured(ReorderFeaturedDto dto, CancellationToken ct) => From(await store.SetFeaturedPagesAsync(dto, ct));
+
     [HttpGet("store/settings")] public async Task<IActionResult> Settings(CancellationToken ct) => Ok(await store.SettingsAsync(ct));
     [Authorize(Roles = AdminRoles.Super), HttpPut("store/settings")]
     public async Task<IActionResult> SaveSettings(StoreSettingsDto dto, CancellationToken ct) => From(await store.SaveSettingsAsync(dto, ct));

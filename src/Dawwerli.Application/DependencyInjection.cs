@@ -30,6 +30,8 @@ public static class DependencyInjection
         services.AddScoped<StoreService>();
         services.AddScoped<SellerPortalService>();
         services.AddScoped<AdminStoreService>();
+        services.AddScoped<DiscoveryService>();
+        services.AddScoped<FollowerNotifier>();
         services.AddValidatorsFromAssembly(typeof(DependencyInjection).Assembly);
         return services;
     }

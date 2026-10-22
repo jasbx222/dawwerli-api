@@ -89,6 +89,59 @@ public sealed class AdminStoreService(StoreKit kit, Shared s, IPasswordHasher pa
         return Result.Ok();
     }
 
+    // ---------- product reviews ----------
+
+    public async Task<PagedDto<AdminReviewDto>> ReviewsAsync(Guid? productId, Guid? pageId, bool? hidden, int? pageNo, int? size, CancellationToken ct)
+    {
+        var (p, n) = kit.Paging(pageNo, size);
+        var q = Db.ProductRatings.AsQueryable();
+        if (productId is { } pid) q = q.Where(r => r.ProductId == pid);
+        if (pageId is { } pg) q = q.Where(r => r.Product!.PageId == pg);
+        if (hidden is { } h) q = q.Where(r => r.HiddenByAdmin == h);
+        var total = await q.CountAsync(ct);
+        var rows = await q.OrderByDescending(r => r.UpdatedAt).Skip((p - 1) * n).Take(n)
+            .Select(r => new AdminReviewDto(r.Id, r.ProductId, r.Product!.Name, r.Product.PageId, r.Product.Page!.Name, r.User!.Name ?? "",
+                r.Stars, r.Comment, r.HiddenByAdmin, r.UpdatedAt)).ToListAsync(ct);
+        return new PagedDto<AdminReviewDto>(rows, total, p, n);
+    }
+
+    /// <summary>Hidden reviews leave the public list and the product's average.</summary>
+    public async Task<Result> SetReviewHiddenAsync(Guid id, bool hidden, CancellationToken ct)
+    {
+        var r = await Db.ProductRatings.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (r is null) return Error.NotFound("review");
+        r.HiddenByAdmin = hidden;
+        s.Audit(hidden ? "review.hide" : "review.unhide", nameof(ProductRating), id);
+        await Db.SaveChangesAsync(ct);
+        await Db.RefreshProductRatingAsync(r.ProductId, ct);
+        return Result.Ok();
+    }
+
+    // ---------- featured pages (customer home strip) ----------
+
+    public async Task<IReadOnlyList<AdminFeaturedPageDto>> FeaturedPagesAsync(CancellationToken ct) =>
+        await Db.Pages.Where(p => p.FeaturedOrder != null).OrderBy(p => p.FeaturedOrder)
+            .Select(p => new AdminFeaturedPageDto(p.Id, p.Name, s.Url(p.ImageKey), p.FeaturedOrder!.Value, p.Rating,
+                Db.PageFollows.Count(f => f.PageId == p.Id))).ToListAsync(ct);
+
+    /// <summary>Replaces the featured strip with these pages in this order (at most five; an empty list clears it).</summary>
+    public async Task<Result> SetFeaturedPagesAsync(ReorderFeaturedDto dto, CancellationToken ct)
+    {
+        var ids = (dto.PageIds ?? []).Distinct().ToList();
+        if (ids.Count > DiscoveryService.TopPagesMax)
+            return new Error(ErrorKind.Validation, "featured.too_many", "Too many featured pages", new Dictionary<string, object?> { ["max"] = DiscoveryService.TopPagesMax });
+        var pages = await Db.Pages.Where(p => ids.Contains(p.Id)).ToListAsync(ct);
+        if (pages.Count != ids.Count) return Error.NotFound("page");
+        if (pages.Any(p => p.Status != PageStatus.Verified)) return Error.Rule("featured.not_verified", "Only verified pages can be featured");
+        await using var tx = await Db.BeginTransactionAsync(ct);
+        await Db.Pages.Where(p => p.FeaturedOrder != null).ExecuteUpdateAsync(x => x.SetProperty(p => p.FeaturedOrder, (int?)null), ct);
+        for (var i = 0; i < ids.Count; i++) pages.First(p => p.Id == ids[i]).FeaturedOrder = i + 1;
+        s.Audit("pages.featured", nameof(Page), Guid.Empty, JsonSerializer.Serialize(new { ids }));
+        await Db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        return Result.Ok();
+    }
+
     // ---------- limits & commission ----------
 
     public async Task<StoreSettingsDto> SettingsAsync(CancellationToken ct)
