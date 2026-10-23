@@ -209,3 +209,15 @@ public sealed class CreateSellerAccountValidator : AbstractValidator<CreateSelle
         RuleFor(x => x.PageId).NotEmpty();
     }
 }
+
+public sealed class TrackLocationValidator : AbstractValidator<TrackLocationDto>
+{
+    public TrackLocationValidator()
+    {
+        RuleFor(x => x.Lat).InclusiveBetween(-90, 90);
+        RuleFor(x => x.Lng).InclusiveBetween(-180, 180);
+        RuleFor(x => x.Accuracy).InclusiveBetween(0, 100_000).When(x => x.Accuracy is not null);
+        RuleFor(x => x.Heading).InclusiveBetween(0, 360).When(x => x.Heading is not null);
+        RuleFor(x => x.Speed).InclusiveBetween(0, 100).When(x => x.Speed is not null);
+    }
+}

@@ -44,6 +44,7 @@ public interface IAppDbContext
     DbSet<ProductRating> ProductRatings { get; }
     DbSet<PageFollow> PageFollows { get; }
     DbSet<Courier> Couriers { get; }
+    DbSet<CourierTracking> CourierTrackings { get; }
     DbSet<StoreOrder> StoreOrders { get; }
     DbSet<StoreOrderItem> StoreOrderItems { get; }
     DbSet<StoreOrderEvent> StoreOrderEvents { get; }
@@ -152,10 +153,18 @@ public interface IPushSender
     Task SendAsync(IReadOnlyCollection<string> tokens, string title, string body, string route, CancellationToken ct = default);
 }
 
+/// <summary>Builds the public courier link (/c/{token}) on the API's own host.</summary>
+public interface ITrackingLinks
+{
+    string Url(string token);
+}
+
 public interface IRealtime
 {
     Task RequestChangedAsync(Guid requestId, CancellationToken ct = default);
     Task PageInboxChangedAsync(Guid pageId, CancellationToken ct = default);
+    /// <summary>Pushes the courier's latest position to everyone watching order:{orderId} (its customer and page).</summary>
+    Task CourierMovedAsync(Guid orderId, object location, CancellationToken ct = default);
 }
 
 public interface ITextCatalog

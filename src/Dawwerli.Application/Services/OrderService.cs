@@ -6,7 +6,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Dawwerli.Application.Services;
 
-public sealed class OrderService(Shared s, TrustService trust, INotifier notifier, ITextCatalog texts, OfferOrderLink link)
+public sealed class OrderService(Shared s, TrustService trust, INotifier notifier, ITextCatalog texts, OfferOrderLink link,
+    CourierTrackingService tracking)
 {
     private IAppDbContext Db => s.Db;
 
@@ -58,6 +59,8 @@ public sealed class OrderService(Shared s, TrustService trust, INotifier notifie
         if (so is not null && so.Status is not (StoreOrderStatus.OutForDelivery or StoreOrderStatus.Delivered))
             return Error.Conflict("order.not_out", "تكدر تأكد الاستلام بس لمن الصفحة تطلّع الطلب للتوصيل");
         if (so is not null && answer == DeliveryAnswer.Received && so.Status != StoreOrderStatus.Delivered) so.Record(StoreOrderStatus.Delivered, s.Now);
+        // The customer answered at the door: the courier's trip is over.
+        if (so is not null) await tracking.EndForOrderAsync(so.Id, ct);
         o.Answer = answer;
         o.AnsweredAt = s.Now;
         o.Status = answer switch

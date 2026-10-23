@@ -52,7 +52,8 @@ public sealed record StoreOrderDto(Guid Id, string No, Guid PageId, string PageN
     string Kind = "store", Guid? RequestId = null, Guid? OfferOrderId = null, OrderPinDto? Location = null, OrderCourierDto? Courier = null,
     string? DealStatus = null, string? Answer = null, bool CanAnswer = false, bool CanRate = false);
 public sealed record StoreOrderEventDto(string Status, DateTime At);
-public sealed record SellerOrderDto(StoreOrderDto Order, string? CustomerName, string? CustomerPhone);
+public sealed record SellerOrderDto(StoreOrderDto Order, string? CustomerName, string? CustomerPhone,
+    string? CourierTrackingUrl = null, CourierTrackingLinkDto? CourierTracking = null);
 public sealed record SetOrderStatusDto(string Status, string? Reason, Guid? CourierId = null);
 
 // Stats
@@ -81,3 +82,17 @@ public sealed record ReorderFeaturedDto(IReadOnlyList<Guid> PageIds);
 public sealed record AdminReviewDto(Guid Id, Guid ProductId, string ProductName, Guid PageId, string PageName, string CustomerName,
     int Stars, string Comment, bool HiddenByAdmin, DateTime UpdatedAt);
 public sealed record AdminFeaturedPageDto(Guid Id, string Name, string? Image, int Order, double Rating, int FollowerCount);
+
+// Courier live tracking (courier link, no courier login)
+/// <summary>What the courier sees on the tracking link. Customer name and phone are returned only while the link is valid.</summary>
+public sealed record TrackItemDto(string Name, int Quantity);
+public sealed record TrackOrderDto(string No, string Status, string PageName, string? PagePhone, string? CustomerName, string? CustomerPhone,
+    string CourierName, string Address, string? Note, OrderPinDto? Location, IReadOnlyList<TrackItemDto> Items,
+    string PaymentMethod, long CollectAmount, bool Sharing, DateTime? LastSentAt);
+public sealed record TrackLocationDto(double Lat, double Lng, double? Accuracy = null, double? Heading = null, double? Speed = null);
+public sealed record TrackStateDto(bool Sharing, DateTime? LastSentAt);
+/// <summary>Courier position for the order's customer or page. Distance is a straight line and the ETA a rough estimate.</summary>
+public sealed record CourierLocationDto(bool Active, double? Latitude = null, double? Longitude = null, double? Accuracy = null, double? Heading = null,
+    DateTime? UpdatedAt = null, double? DistanceMeters = null, int? EtaMinutes = null, bool Approximate = true);
+public sealed record CourierTrackingLinkDto(string Url, bool Sharing, DateTime? LastLocationAt, DateTime CreatedAt);
+public sealed record AssignCourierDto(Guid CourierId);

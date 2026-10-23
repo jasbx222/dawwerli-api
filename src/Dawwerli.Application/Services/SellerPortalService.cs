@@ -11,7 +11,8 @@ namespace Dawwerli.Application.Services;
 
 /// <summary>Web seller portal: email + password sign-in (lockout, no 2FA) and the page's own products, orders and stats.</summary>
 public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller seller, IPasswordHasher passwords, ISellerTokenService tokens,
-    IOptions<SellerPortalOptions> portal, StoreOrderDesk desk, FollowerNotifier followers, CourierService couriers)
+    IOptions<SellerPortalOptions> portal, StoreOrderDesk desk, FollowerNotifier followers, CourierService couriers,
+    CourierTrackingService tracking)
 {
     private IAppDbContext Db => kit.Db;
     private static readonly Error BadCredentials = Error.Unauthorized("auth.credentials", "Wrong email or password");
@@ -200,6 +201,29 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         var c = await ContextAsync(ct);
         if (!c.IsSuccess) return c.Error!;
         return await desk.MoveAsync(seller.PageId, seller.AccountId, id, dto, hideClosedPhone: false, ct);
+    }
+
+    public async Task<Result<CourierLocationDto>> CourierLocationAsync(Guid id, CancellationToken ct)
+    {
+        var c = await ContextAsync(ct);
+        if (!c.IsSuccess) return c.Error!;
+        return await tracking.ForPageAsync(seller.PageId, id, ct);
+    }
+
+    public async Task<Result<CourierTrackingLinkDto>> RegenerateLinkAsync(Guid id, CancellationToken ct)
+    {
+        var c = await ContextAsync(ct);
+        if (!c.IsSuccess) return c.Error!;
+        return await tracking.RegenerateAsync(seller.PageId, id, ct);
+    }
+
+    public async Task<Result<SellerOrderDto>> ReassignCourierAsync(Guid id, AssignCourierDto dto, CancellationToken ct)
+    {
+        var c = await ContextAsync(ct);
+        if (!c.IsSuccess) return c.Error!;
+        var r = await tracking.ReassignAsync(seller.PageId, id, dto.CourierId, ct);
+        if (!r.IsSuccess) return r.Error!;
+        return await desk.GetAsync(seller.PageId, id, hideClosedPhone: false, ct);
     }
 
     // ---------- couriers ----------

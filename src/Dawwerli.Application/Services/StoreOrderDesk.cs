@@ -12,7 +12,8 @@ namespace Dawwerli.Application.Services;
 /// Store-order handling for one page, shared by the web seller portal and the page app.
 /// Every query is scoped to the given page id, so a page only ever sees and moves its own orders.
 /// </summary>
-public sealed class StoreOrderDesk(StoreKit kit, Shared s, INotifier notifier, ITextCatalog texts, IPhoneProtector phones, OfferOrderLink link)
+public sealed class StoreOrderDesk(StoreKit kit, Shared s, INotifier notifier, ITextCatalog texts, IPhoneProtector phones, OfferOrderLink link,
+    CourierTrackingService tracking)
 {
     private IAppDbContext Db => kit.Db;
 
@@ -81,6 +82,9 @@ public sealed class StoreOrderDesk(StoreKit kit, Shared s, INotifier notifier, I
             o.CourierPhone = courier.Phone;
         }
         if (o.Kind == StoreOrderKind.Store && StoreOrderFlow.RestoresStock(to)) await kit.RestoreStockAsync(o, ct);
+        // A courier link is issued when the order goes out with a courier and ends with the trip.
+        if (to == StoreOrderStatus.OutForDelivery && courier is not null) await tracking.IssueAsync(o, ct);
+        else if (to != StoreOrderStatus.OutForDelivery) await tracking.EndForOrderAsync(o.Id, ct);
         Db.AuditLogs.Add(new AuditLog { ActorUserId = actorId, Action = "store_order.status", EntityName = nameof(StoreOrder),
             EntityId = o.Id.ToString(), Data = JsonSerializer.Serialize(new { to = to.Code(), courier = courier?.Id }) });
         await Db.SaveChangesAsync(ct);
@@ -105,13 +109,30 @@ public sealed class StoreOrderDesk(StoreKit kit, Shared s, INotifier notifier, I
         var u = await Db.Users.FirstOrDefaultAsync(x => x.Id == o.CustomerUserId, ct);
         var deal = o.OfferOrderId is { } did ? await Db.Orders.FirstOrDefaultAsync(x => x.Id == did, ct) : null;
         var showPhone = u is not null && !string.IsNullOrEmpty(u.PhoneEncrypted) && (!hideClosedPhone || IsActive(o.Status));
-        return new(kit.ToDto(o, deal), u?.Name, showPhone ? phones.Decrypt(u!.PhoneEncrypted) : null);
+        var link = await tracking.LinkAsync(o, ct);
+        return new(kit.ToDto(o, deal), u?.Name, showPhone ? phones.Decrypt(u!.PhoneEncrypted) : null, link?.Url, link);
     }
 }
 
 /// <summary>The signed-in page's own store orders, for the page app. Phones are shown only while an order is still open.</summary>
-public sealed class PageStoreOrderService(StoreOrderDesk desk, Shared s)
+public sealed class PageStoreOrderService(StoreOrderDesk desk, Shared s, CourierTrackingService tracking)
 {
+    public async Task<Result<CourierLocationDto>> CourierLocationAsync(Guid id, CancellationToken ct) =>
+        await s.MyPageAsync(ct) is { } page ? await tracking.ForPageAsync(page.Id, id, ct) : Errors.NotPage;
+
+    public async Task<Result<CourierTrackingLinkDto>> RegenerateLinkAsync(Guid id, CancellationToken ct) =>
+        await s.MyPageAsync(ct) is { } page ? await tracking.RegenerateAsync(page.Id, id, ct) : Errors.NotPage;
+
+    /// <summary>Hands an order that is already out to another courier; the old courier link stops working.</summary>
+    public async Task<Result<SellerOrderDto>> ReassignCourierAsync(Guid id, AssignCourierDto dto, CancellationToken ct)
+    {
+        var page = await s.MyPageAsync(ct);
+        if (page is null) return Errors.NotPage;
+        var r = await tracking.ReassignAsync(page.Id, id, dto.CourierId, ct);
+        if (!r.IsSuccess) return r.Error!;
+        return await desk.GetAsync(page.Id, id, hideClosedPhone: true, ct);
+    }
+
     public async Task<Result<PagedDto<SellerOrderDto>>> ListAsync(string? status, int? pageNo, int? size, CancellationToken ct)
     {
         var page = await s.MyPageAsync(ct);

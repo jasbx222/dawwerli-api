@@ -272,6 +272,18 @@ internal sealed class CourierConfig : IEntityTypeConfiguration<Courier>
     }
 }
 
+internal sealed class CourierTrackingConfig : IEntityTypeConfiguration<CourierTracking>
+{
+    public void Configure(EntityTypeBuilder<CourierTracking> b)
+    {
+        b.Property(x => x.Token).HasMaxLength(64);
+        b.HasIndex(x => x.Token).IsUnique();
+        b.HasIndex(x => new { x.OrderId, x.RevokedAt });
+        b.HasOne<StoreOrder>().WithMany().HasForeignKey(x => x.OrderId).OnDelete(DeleteBehavior.Cascade);
+        b.Ignore(x => x.Sharing);
+    }
+}
+
 internal sealed class StoreOrderEventConfig : IEntityTypeConfiguration<StoreOrderEvent>
 {
     public void Configure(EntityTypeBuilder<StoreOrderEvent> b)
