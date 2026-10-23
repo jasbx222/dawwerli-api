@@ -50,6 +50,36 @@ public class StoreTests(ApiFactory factory)
     private static async Task<int> StockAsync(HttpClient c, string productId) =>
         (await (await c.SendAsync(Req("GET", $"/api/v1/products/{productId}", null))).ReadAsync()).GetProperty("stock").GetInt32();
 
+    /// <summary>The customer app places the order with POST /store/orders and the body of CheckoutScreen._submit.</summary>
+    [Fact]
+    public async Task App_checkout_path_places_the_order()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var seller = await SellerAsync(c, admin);
+        var p = await ProductIdAsync(c, seller.Token, stock: 3);
+        var customer = await Api.CustomerAsync(c);
+        (await c.SendAsync(Req("POST", "/api/v1/store/cart/items", customer, new { productId = p, quantity = 2 }))).EnsureSuccessStatusCode();
+
+        var r = await c.SendAsync(Req("POST", "/api/v1/store/orders", customer, new
+        {
+            address = "بغداد - المنصور، قرب الجامع", paymentMethod = "cash", latitude = 33.3152, longitude = 44.3661, locationNote = "باب أخضر",
+        }));
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var placed = await r.ReadAsync();
+        var orderId = placed.GetProperty("orderId").GetString()!;
+        Assert.Equal(50000, placed.GetProperty("total").GetInt64());
+        Assert.Equal(1, await StockAsync(c, p));
+
+        var order = await (await c.SendAsync(Req("GET", $"/api/v1/store/orders/{orderId}", customer))).ReadAsync();
+        Assert.Equal("new", order.GetProperty("status").GetString());
+        Assert.Equal("باب أخضر", order.GetProperty("location").GetProperty("note").GetString());
+        Assert.Empty((await (await c.SendAsync(Req("GET", "/api/v1/store/cart", customer))).ReadAsync()).GetProperty("items").EnumerateArray());
+        // Listing orders is still a GET on the same path (paged envelope).
+        var list = await (await c.SendAsync(Req("GET", "/api/v1/store/orders", customer))).ReadAsync();
+        Assert.Contains(list.GetProperty("items").EnumerateArray(), o => o.GetProperty("id").GetString() == orderId);
+    }
+
     /// <summary>The customer app calls the cart under /store, like checkout and orders; those paths must reach the cart.</summary>
     [Fact]
     public async Task App_cart_paths_add_an_in_stock_product_read_and_clear_the_cart()
