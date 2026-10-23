@@ -43,7 +43,7 @@ public sealed class OrderService(Shared s, TrustService trust, INotifier notifie
         };
         return new OrderDto(o.Id, Shared.OrderNo(o.Number), o.PageId, o.Page.Name, s.Url(o.Page.ImageKey), steps, received,
             o.Answer?.Code(), rating is null ? null : new RatingDto(rating.Stars, rating.Tags, rating.Comment), o.Status.Code(),
-            rules.RatingTags, rules.LowRatingTags);
+            rules.RatingTags, rules.LowRatingTags, (await link.ForDealAsync(o.Id, ct))?.Id);
     }
 
     public async Task<Result> AnswerAsync(Guid id, DeliveryAnswerDto dto, CancellationToken ct)
@@ -123,8 +123,9 @@ public sealed class OrderService(Shared s, TrustService trust, INotifier notifie
         Db.Reports.Add(new Report { ReporterUserId = s.Me.UserId, Target = ReportTarget.Customer, TargetId = o.CustomerId, OrderId = o.Id,
             Reason = ReportReason.NoReply, Status = CaseStatus.Open });
         await Db.SaveChangesAsync(ct);
+        var so = await link.ForDealAsync(o.Id, ct);
         await notifier.NotifyAsync(o.CustomerId, texts.Get("customer.askReceived.title"), texts.Get("customer.askReceived.body", o.Page!.Name),
-            $"/orders/{o.Id}", ct);
+            so is null ? $"/orders/{o.Id}" : $"/store/orders/{so.Id}", ct);
         return Result.Ok();
     }
 
