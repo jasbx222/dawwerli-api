@@ -109,6 +109,28 @@ public class LiveSeederTests(LiveSeedApiFactory factory) : IClassFixture<LiveSee
     }
 
     [Fact]
+    public async Task Every_page_owner_can_sign_in_with_phone_and_the_seed_password()
+    {
+        var (scope, db, _, o) = await OpenAsync();
+        await using var __ = scope;
+        var ownerIds = await db.Pages.Select(p => p.UserId).ToListAsync();
+        Assert.Equal(o.Pages, ownerIds.Count);
+        var hashes = await db.Users.Where(u => ownerIds.Contains(u.Id)).Select(u => u.PasswordHash).ToListAsync();
+        Assert.Equal(o.Pages, hashes.Count);
+        Assert.All(hashes, h => Assert.False(string.IsNullOrEmpty(h)));
+        Assert.Single(hashes.Distinct()); // one precomputed hash for the shared password
+
+        var c = factory.CreateClient();
+        foreach (var n in new[] { 2, o.Pages / 2, o.Pages })
+        {
+            var login = await c.PostAsJsonAsync("/api/v1/auth/login", new { phone = $"0790002{n:D4}", password = "seller-pass-123", role = "page", deviceId = $"test-device-{n}" });
+            Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+            var wrong = await c.PostAsJsonAsync("/api/v1/auth/login", new { phone = $"0790002{n:D4}", password = "not-the-password", role = "page", deviceId = $"test-device-{n}" });
+            Assert.NotEqual(HttpStatusCode.OK, wrong.StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task Ads_cover_every_slot_owner_and_status_and_are_paid_from_the_ledger()
     {
         var (scope, db, _, o) = await OpenAsync();

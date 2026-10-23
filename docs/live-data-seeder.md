@@ -16,7 +16,7 @@ governorates, categories, banned keywords and the audit log are kept. Missing ca
 | Ads | 50, covering every slot, owner type and status (breakdown below) |
 | Wallet | every page has a balance of 25,000 IQD, and its ledger sums to exactly that (top-up first, then ad charges/refunds) |
 | Followers | every Verified/Suspended page has followers (~1,000 follows); Pending/Rejected pages have none |
-| Also | couriers, 8 admin-featured pages, favourites, reviews (only from delivered orders), notifications, seller-portal accounts |
+| Also | couriers, 8 admin-featured pages, favourites, reviews (only from delivered orders), notifications; with `Seed__SellerPassword`: seller-portal accounts and app password login for every page owner |
 
 History is spread over the last 180 days. Phones use fictional blocks: customers `0790001xxxx`, page users `0790002xxxx`,
 couriers `0790003xxxx`. Prices are in IQD.
@@ -30,15 +30,16 @@ Page number 1 is a fixed demo store that is the busiest page in the data:
   Rejected), the most followers, product reviews, admin-featured order 1, one running ad in each slot (home banner,
   featured page, sponsored offer) and pinned sponsored offers, balance 25,000.
 
-At the end the seeder logs one line with the name, the phone and (only when `Seed__SellerPassword` is set) the
-seller-portal email `rafidain.mobile@sellers.dawwerli.test`. The password itself is never logged.
+At the end the seeder logs one line with the name, the phone, whether phone + password login is on (and for how many
+page owners) and (only when `Seed__SellerPassword` is set) the seller-portal email `rafidain.mobile@sellers.dawwerli.test`.
+The password itself is never logged.
 
 ### Logging in as the showcase owner
 
 | Where | How |
 |---|---|
 | Mobile app (OTP) | `POST /api/v1/auth/otp/request {phone}` then `POST /api/v1/auth/otp/verify {phone, code, role:"page", deviceId}`. With the default `Sms:Provider = Log` **no SMS is sent and the code is not written to the logs** (only `***001`). On a test server set `Otp__FixedCode=<code>` (every OTP is that code, no SMS) or `Otp__ExposeCodeInResponse=true` (the response contains `devCode`). In production use the `Http` SMS provider (falls back to WhatsApp after 3 failed SMS). |
-| Mobile app (password) | `POST /api/v1/auth/login {phone:"07900020001", password, role:"page", deviceId}`. Works when the seed ran with `Seed__SellerPassword`: the showcase owner gets that password. |
+| Mobile app (password) | `POST /api/v1/auth/login {phone:"07900020001", password, role:"page", deviceId}`. Works when the seed ran with `Seed__SellerPassword`: **every** page owner (all 500 `0790002xxxx` phones, page *n* = `0790002` + *n* as 4 digits, e.g. page 37 = `07900020037`) gets that password, because OTP to the fictional numbers never arrives. |
 | Seller portal | `POST /api/seller/v1/auth/login {email:"rafidain.mobile@sellers.dawwerli.test", password}` (every page gets `<handle>@sellers.dawwerli.test` when `Seed__SellerPassword` is set). |
 
 ### Ads (`Seed__Ads`, default 50)
@@ -118,8 +119,8 @@ pg_dump -h <host> -U <user> -d <db> -Fc -f dawwerli-before-live-seed-$(date +%F-
 
 1. Set on the server: `Seed__Live=true`.
    Optional: `Seed__SellerPassword=<a strong password>` to create a seller-portal login for every page
-   (`<instagram_handle>@sellers.dawwerli.test`) and an app password for the showcase owner. Without it no seller accounts
-   are created.
+   (`<instagram_handle>@sellers.dawwerli.test`) and the same app password (phone + password login) for every page owner.
+   Without it no seller accounts are created and page owners can only use OTP.
    Optional counts: `Seed__Pages`, `Seed__ProductPages` (default 500; a value above `Seed__Pages` means every page),
    `Seed__MinProductsPerPage` / `Seed__MaxProductsPerPage` (default 50 / 50, max 200), `Seed__Customers`, `Seed__Offers`,
    `Seed__StoreOrders`, `Seed__Ads`, `Seed__FeaturedPages`, `Seed__HistoryDays`, `Seed__RandomSeed`.

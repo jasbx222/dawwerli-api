@@ -241,6 +241,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
         private readonly Dictionary<Guid, Place> placeOf = [];
         private readonly Dictionary<Guid, CategoryKit> kitOf = [];
         private readonly Dictionary<Guid, User> ownerOf = [];
+        private int appPasswordOwners;
         private readonly Dictionary<Guid, List<Product>> productsOf = [];
         private readonly Dictionary<Guid, List<Courier>> couriersOf = [];
         private readonly Dictionary<Guid, ProductSeed> templateOf = [];
@@ -306,7 +307,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             var mineProducts = products.Where(x => x.PageId == id).Select(x => x.Id).ToHashSet();
             var so = storeOrders.Where(x => x.PageId == id).ToList();
             var email = sellers.Any(x => x.PageId == id) ? ShowcaseSellerEmail : "none (Seed__SellerPassword not set)";
-            return $"{showcase.Name} (@{showcase.InstagramHandle}), app login phone {ShowcasePhone} (OTP{(sellers.Count > 0 ? " or phone + Seed__SellerPassword" : "")}), seller portal email {email}; " +
+            return $"{showcase.Name} (@{showcase.InstagramHandle}), app login phone {ShowcasePhone} (OTP{(appPasswordOwners > 0 ? $" or phone + Seed__SellerPassword; same for all {appPasswordOwners} page owners" : "")}), seller portal email {email}; " +
                 $"products={products.Count(x => x.PageId == id)}, offers={mine.Count} (selected={mine.Count(x => x.Status == OfferStatus.Selected)}), " +
                 $"store_orders={so.Count} ({string.Join(", ", so.GroupBy(x => x.Status).OrderBy(g => g.Key).Select(g => $"{g.Key}={g.Count()}"))}), " +
                 $"followers={follows.Count(x => x.PageId == id)}, product_reviews={productRatings.Count(r => mineProducts.Contains(r.ProductId))}, " +
@@ -1326,8 +1327,10 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                     Id = NewId(), PageId = page.Id, Email = $"{page.InstagramHandle}@{SellerEmailDomain}".ToLowerInvariant(),
                     PasswordHash = hash, CreatedAt = page.CreatedAt.AddDays(1),
                 });
-            // The showcase owner can also sign in to the app with phone + password (POST /api/v1/auth/login), no OTP needed.
-            if (showcase is not null && ownerOf.TryGetValue(showcase.Id, out var showcaseOwner)) showcaseOwner.PasswordHash = hash;
+            // Every page owner can also sign in to the app with phone + password (POST /api/v1/auth/login):
+            // OTP to the fictional numbers never arrives. Same precomputed hash, no extra hashing cost.
+            foreach (var user in ownerOf.Values) user.PasswordHash = hash;
+            appPasswordOwners = ownerOf.Count;
         }
 
         /// <summary>SaveChanges stamps updated_at = now; make it match the seeded history.</summary>
