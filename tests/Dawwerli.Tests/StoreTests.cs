@@ -80,6 +80,32 @@ public class StoreTests(ApiFactory factory)
         Assert.Contains(list.GetProperty("items").EnumerateArray(), o => o.GetProperty("id").GetString() == orderId);
     }
 
+    /// <summary>Anti-leak covers the checkout address like the offer-select address; house numbers are still fine.</summary>
+    [Fact]
+    public async Task Checkout_rejects_contact_info_in_the_address_and_keeps_the_cart()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var seller = await SellerAsync(c, admin);
+        var p = await ProductIdAsync(c, seller.Token, stock: 3);
+        var customer = await Api.CustomerAsync(c);
+        (await c.SendAsync(Req("POST", "/api/v1/store/cart/items", customer, new { productId = p, quantity = 1 }))).EnsureSuccessStatusCode();
+
+        foreach (var leak in new[] { "المنصور اتصل 0770 123 4567", "المنصور @shop_iq", "المنصور wa.me/9647701234567" })
+        {
+            var bad = await c.SendAsync(Req("POST", "/api/v1/store/orders", customer, new { address = leak, paymentMethod = "cash" }));
+            Assert.Equal(HttpStatusCode.UnprocessableEntity, bad.StatusCode);
+            var err = await bad.ReadAsync();
+            Assert.Equal("order.contact", err.GetProperty("code").GetString());
+            Assert.Matches("[\u0600-\u06FF]", err.GetProperty("title").GetString()!);
+        }
+        Assert.Equal(3, await StockAsync(c, p));
+        Assert.Single((await (await c.SendAsync(Req("GET", "/api/v1/store/cart", customer))).ReadAsync()).GetProperty("items").EnumerateArray());
+
+        var ok = await c.SendAsync(Req("POST", "/api/v1/store/orders", customer, new { address = "محلة 905 زقاق 12 دار 7", paymentMethod = "cash" }));
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+    }
+
     /// <summary>The customer app calls the cart under /store, like checkout and orders; those paths must reach the cart.</summary>
     [Fact]
     public async Task App_cart_paths_add_an_in_stock_product_read_and_clear_the_cart()

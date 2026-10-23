@@ -245,7 +245,7 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
     public async Task<Result<CheckoutResultDto>> CheckoutAsync(CheckoutDto dto, CancellationToken ct)
     {
         if (!EnumText.TryParse<PaymentMethod>(dto.PaymentMethod, out var method)) return Errors.BadEnum("paymentMethod");
-        if (OrderPin.Check(dto.Latitude, dto.Longitude, dto.Note, dto.LocationNote) is { } pinError) return pinError;
+        if (OrderPin.Check(dto.Latitude, dto.Longitude, dto.Address, dto.Note, dto.LocationNote) is { } pinError) return pinError;
         if (method == PaymentMethod.Electronic && !payments.IsConfigured) return StoreErrors.PaymentNotConfigured;
         var user = await Db.Users.FirstAsync(u => u.Id == Me, ct);
         if (user.IsBanned) return Error.Forbidden("account.banned", "Account is banned");
