@@ -72,7 +72,7 @@ internal static class LiveSeedData
     /// <paramref name="Variants"/>) and the variants are linked as one group with prices rising from MinPrice to MaxPrice.
     /// </remarks>
     public sealed record ProductSeed(string Name, string Description, long MinPrice, long MaxPrice, string Tag, string[]? Variants = null, bool CanBeUsed = false,
-        WallSeed? Wall = null);
+        WallSeed? Wall = null, string? Category = null);
 
     /// <summary>Wall kind, page-local variant group key and real-world sizes in cm (width, height, depth) per variant.</summary>
     public sealed record WallSeed(WallKind Kind, string Group, (decimal W, decimal H, decimal? D)[] Sizes);
@@ -106,7 +106,8 @@ internal static class LiveSeedData
                 new("كفر سيليكون مع حماية كاميرا", "يتوفر لأغلب الأجهزة، ألوان متعددة.", 5_000, 12_000, "phoneacc"),
                 new("باور بانك 20000 ملي أمبير", "يشحن الموبايل 4 مرات، منفذين.", 25_000, 45_000, "phoneacc"),
                 new("شاشة حماية زجاج نانو", "تركيب مجاني بالمحل.", 5_000, 10_000, "phoneacc"),
-                TvTemplate,
+                // Phone shops also sell TVs, but a TV belongs under «إلكترونيات», never «موبايلات».
+                TvTemplate with { Category = "electronics" },
             ],
             ["أريد آيفون 13 نظيف بطارية فوق 85", "أدور سامسونج A55 جديد بكارتونه", "شاومي ريدمي نوت 13 ذاكرة 256", "موبايل للوالدة شاشة كبيرة وسعر مناسب", "ايربودز أصلية مو كوبي"],
             ["phone"]),

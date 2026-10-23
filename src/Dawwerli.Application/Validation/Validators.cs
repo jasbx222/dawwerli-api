@@ -155,6 +155,8 @@ public sealed class UpsertProductValidator : AbstractValidator<UpsertProductDto>
             .WithErrorCode("product.variant_group").WithMessage("Group key: 1–40 of a-z, 0-9, '-' or '_'");
         RuleFor(x => x.VariantLabel).NotEmpty().When(x => !string.IsNullOrWhiteSpace(x.VariantGroup))
             .WithErrorCode("product.variant_label").WithMessage("A variant needs a label");
+        RuleFor(x => x.VariantLabel).Empty().When(x => string.IsNullOrWhiteSpace(x.VariantGroup))
+            .WithErrorCode("product.variant_label").WithMessage("A size label needs a variant group");
         RuleFor(x => x.VariantLabel).MaximumLength(30);
     }
 }

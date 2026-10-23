@@ -56,6 +56,8 @@ Page number 1 is a fixed demo store that is the busiest page in the data:
   round mirror group (60/80 cm). The showcase page and every phones, electronics, home and appliance page lists the TV
   group; home and furniture pages list the mirror, and furniture pages also the canvas art, frame and wall rug groups. Every size of a group is always listed (width/height/depth in cm, wall kind,
   page-local variant group and label), shares one set of photos and is priced from the template's min to max.
+  TVs on phones pages are filed under the electronics category (never «موبايلات»), and those pages list electronics too.
+  Data seeded before this change keeps the old category until the next full re-seed.
 
 At the end the seeder logs one line with the name, the phone, whether phone + password login is on (and for how many
 page owners) and (only when `Seed__SellerPassword` is set) the seller-portal email `rafidain.mobile@sellers.dawwerli.test`.

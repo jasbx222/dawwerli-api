@@ -140,6 +140,11 @@ public class LiveSeederTests(LiveSeedApiFactory factory) : IClassFixture<LiveSee
         Assert.Equal(3, tvs.Count);
         Assert.Equal([96.3m, 123.1m, 145.1m], tvs.Select(p => p.WidthCm!.Value));
         Assert.Contains(wall, p => p.WallKind == WallKind.Mirror && p.WidthCm == p.HeightCm);
+        // TVs sold by phone shops are filed under electronics, never under «موبايلات».
+        var phones = await db.Categories.Where(x => x.Slug == "phones").Select(x => x.Id).SingleAsync();
+        Assert.DoesNotContain(wall, p => p.WallKind == WallKind.Tv && p.CategoryId == phones);
+        var electronics = await db.Categories.Where(x => x.Slug == "electronics").Select(x => x.Id).SingleAsync();
+        Assert.All(tvs, p => Assert.Equal(electronics, p.CategoryId));
     }
 
     [Fact]

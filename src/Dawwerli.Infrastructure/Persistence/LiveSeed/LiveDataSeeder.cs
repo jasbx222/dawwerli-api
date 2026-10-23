@@ -750,6 +750,10 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                     var extra = Pick(RelatedCategories[kit.Slug]);
                     pageCats.Add(new PageCategory { PageId = page.Id, CategoryId = cat[extra] });
                 }
+                // A kit that sells a product from another category (phone shops with TVs) lists that category on the page too.
+                foreach (var cross in kit.Products.Select(t => t.Category).OfType<string>().Where(c => c != kit.Slug).Distinct())
+                    if (!pageCats.Any(c => c.PageId == page.Id && c.CategoryId == cat[cross]))
+                        pageCats.Add(new PageCategory { PageId = page.Id, CategoryId = cat[cross] });
                 pageGovs.Add(new PageGovernorate { PageId = page.Id, GovernorateId = govId });
                 if ((isShowcase || Chance(0.25)) && neighbours.TryGetValue(govId, out var near) && near.Length > 0)
                     foreach (var n in Sample(near, isShowcase ? 2 : Int(1, 2)))
@@ -827,7 +831,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                     var p = new Product
                     {
                         Id = NewId(), PageId = page.Id, Name = name, Description = $"{seed.Description}\n{condition}\nالسعر بالدينار العراقي، التوصيل متوفر.",
-                        Price = price, ImageKeys = Images(seed.Tag, Int(1, 3)), CategoryId = cat[kit.Slug],
+                        Price = price, ImageKeys = Images(seed.Tag, Int(1, 3)), CategoryId = cat[seed.Category ?? kit.Slug],
                         Stock = page != showcase && Chance(0.08) ? 0 : Int(1, 25), Active = page == showcase || Chance(0.95),
                         CreatedAt = Between(page.CreatedAt.AddDays(1), DaysAgo(1)),
                     };
