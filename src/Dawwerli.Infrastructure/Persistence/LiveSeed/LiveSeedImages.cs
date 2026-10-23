@@ -268,5 +268,24 @@ internal static class LiveSeedImages
             "https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Precision_Screwdriver_Set_2.jpg/960px-Precision_Screwdriver_Set_2.jpg",
             "https://upload.wikimedia.org/wikipedia/commons/4/4a/Jeweler%27s-screwdriver-set-bright.jpg",
         ],
+        // Wall-placeable products («حطها على حايطك»): front-facing shots.
+        ["tv"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/6/68/Samsung_UE65F9005STXXE_front_black_20130613.jpg/960px-Samsung_UE65F9005STXXE_front_black_20130613.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Sanyo_XT-43S7100F_20160808.jpg/960px-Sanyo_XT-43S7100F_20160808.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/Samsung_OLED_TV.jpg/960px-Samsung_OLED_TV.jpg",
+        ],
+        ["mirror"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6b/Mirror%2C_wall_%28AM_12714-1%29.jpg/960px-Mirror%2C_wall_%28AM_12714-1%29.jpg",
+        ],
+        ["frame"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Frame_MET_45186.jpg/960px-Frame_MET_45186.jpg",
+        ],
+        ["art"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/6/64/Abstract_large_painting_%27Dune_landscape%27_painted_by_Dutch_artist_Fons_Heijnsbroek_in_acryl_paint_in_1990%3B_free_download_art_image.jpg/960px-Abstract_large_painting_%27Dune_landscape%27_painted_by_Dutch_artist_Fons_Heijnsbroek_in_acryl_paint_in_1990%3B_free_download_art_image.jpg",
+        ],
+        ["rug"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Persian_Carpet_%2851759428441%29.jpg/960px-Persian_Carpet_%2851759428441%29.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/0/0f/Indo-Persian_carpet_with_medallions_MET_DP265209.jpg",
+        ],
     };
 }

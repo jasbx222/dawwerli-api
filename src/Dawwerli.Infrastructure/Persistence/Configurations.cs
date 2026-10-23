@@ -215,7 +215,20 @@ internal sealed class ProductConfig : IEntityTypeConfiguration<Product>
         b.Property(x => x.Name).HasMaxLength(120);
         b.Property(x => x.Description).HasMaxLength(4000);
         b.Property(x => x.Version).IsRowVersion();
-        b.ToTable(t => t.HasCheckConstraint("ck_products_stock", "stock >= 0"));
+        b.Property(x => x.WidthCm).HasPrecision(5, 1);
+        b.Property(x => x.HeightCm).HasPrecision(5, 1);
+        b.Property(x => x.DepthCm).HasPrecision(5, 1);
+        b.Property(x => x.VariantGroup).HasMaxLength(40);
+        b.Property(x => x.VariantLabel).HasMaxLength(30);
+        b.HasIndex(x => new { x.PageId, x.VariantGroup }).HasFilter("variant_group IS NOT NULL");
+        b.ToTable(t =>
+        {
+            t.HasCheckConstraint("ck_products_stock", "stock >= 0");
+            t.HasCheckConstraint("ck_products_size", "(width_cm IS NULL) = (height_cm IS NULL)"
+                + " AND (width_cm IS NULL OR (width_cm BETWEEN 1 AND 1000 AND height_cm BETWEEN 1 AND 1000))"
+                + " AND (depth_cm IS NULL OR (width_cm IS NOT NULL AND depth_cm BETWEEN 1 AND 1000))"
+                + " AND (wall_kind IS NULL OR width_cm IS NOT NULL)");
+        });
     }
 }
 

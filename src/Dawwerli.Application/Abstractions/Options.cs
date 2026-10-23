@@ -49,6 +49,8 @@ public sealed class StoreOptions
     public int TopRatedPages { get; set; }
     public int TopRatedProductsPerPage { get; set; }
     public int RatingCommentMaxLength { get; set; }
+    /// <summary>Most products one variant group may hold (per page).</summary>
+    public int MaxVariantsPerGroup { get; set; } = 10;
 }
 
 /// <summary>Web seller portal sign-in ("SellerPortal").</summary>

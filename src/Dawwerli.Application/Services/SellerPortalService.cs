@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Dawwerli.Application.Abstractions;
 using Dawwerli.Application.Contracts;
+using Dawwerli.Application.Validation;
 using Dawwerli.Domain.Common;
 using Dawwerli.Domain.Entities;
 using Dawwerli.Domain.Rules;
@@ -112,6 +113,7 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         await Db.LockPageAsync(page.Id, ct);
         var limit = await kit.ProductLimitAsync(page, ct);
         if (await kit.ProductCountAsync(page.Id, ct) >= limit) return StoreErrors.LimitReached(limit);
+        if (await GroupFullAsync(dto, null, ct) is { } full) return full;
         var p = new Product { PageId = page.Id };
         Apply(p, dto);
         Db.Products.Add(p);
@@ -129,8 +131,13 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         var p = await OwnProductAsync(id, ct);
         if (p is null) return StoreErrors.ProductNotFound;
         if (await CheckAsync(dto, ct) is { } bad) return bad;
+        // Same page lock as create, so two saves can't both squeeze into the last free slot of a variant group.
+        await using var tx = await Db.BeginTransactionAsync(ct);
+        await Db.LockPageAsync(p.PageId, ct);
+        if (await GroupFullAsync(dto, p.Id, ct) is { } full) return full;
         Apply(p, dto);
         await Db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
         return kit.ToSellerDto(p);
     }
 
@@ -166,7 +173,20 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         if (!await Db.Categories.AnyAsync(x => x.Id == dto.CategoryId && x.IsActive, ct)) return Errors.BadEnum("category");
         if (await kit.BannedWordAsync(ct, dto.Name, dto.Description) is { } word)
             return new Error(ErrorKind.BusinessRule, "product.prohibited", "Text contains a banned word", new Dictionary<string, object?> { ["word"] = word });
+        if (!string.IsNullOrWhiteSpace(dto.VariantLabel) && await kit.BannedWordAsync(ct, dto.VariantLabel) is { } w2)
+            return new Error(ErrorKind.BusinessRule, "product.prohibited", "Text contains a banned word", new Dictionary<string, object?> { ["word"] = w2 });
         return null;
+    }
+
+    /// <summary>Groups live inside the seller's own page: only this page's products are counted (or ever linked). Call under the page lock.</summary>
+    private async Task<Error?> GroupFullAsync(UpsertProductDto dto, Guid? self, CancellationToken ct)
+    {
+        if (ProductSize.NormalizeGroup(dto.VariantGroup) is not { } group) return null;
+        var max = kit.Options.MaxVariantsPerGroup;
+        var others = await Db.Products.CountAsync(x => x.PageId == seller.PageId && x.DeletedAt == null && x.VariantGroup == group
+            && (self == null || x.Id != self), ct);
+        return others < max ? null
+            : new Error(ErrorKind.BusinessRule, "product.variants_full", "This variant group is full", new Dictionary<string, object?> { ["max"] = max });
     }
 
     private static void Apply(Product p, UpsertProductDto dto)
@@ -178,6 +198,12 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         p.CategoryId = dto.CategoryId;
         p.Stock = dto.Stock;
         p.Active = dto.Active;
+        p.WidthCm = dto.WidthCm;
+        p.HeightCm = dto.HeightCm;
+        p.DepthCm = dto.WidthCm is null ? null : dto.DepthCm;
+        p.WallKind = dto.WidthCm is not null && ProductSize.TryParseWallKind(dto.WallKind, out var kind) ? kind : null;
+        p.VariantGroup = ProductSize.NormalizeGroup(dto.VariantGroup);
+        p.VariantLabel = p.VariantGroup is null ? null : dto.VariantLabel?.Trim();
     }
 
     // ---------- orders ----------

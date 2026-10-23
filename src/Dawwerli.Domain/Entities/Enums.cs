@@ -28,3 +28,5 @@ public enum CaseStatus { Open, UnderReview, Accepted, Rejected }
 public enum DisputeType { NoReply, NotDelivered, FakeReport, StrikeAppeal }
 public enum PageMarkKind { NoReply, Complaint }
 public enum CategoryBadge { None, Trending, New }
+/// <summary>What a wall-placeable product is, so the app can draw it on the customer's wall photo ("حطها على حايطك").</summary>
+public enum WallKind { Tv, Mirror, Frame, Art, Rug, Shelf, Clock, Other }

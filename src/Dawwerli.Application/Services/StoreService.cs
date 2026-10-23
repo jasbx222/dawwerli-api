@@ -66,8 +66,22 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
             if (mine is not null) mine = mine with { CustomerName = FirstName(mine.CustomerName) };
             favorite = await Db.ProductFavorites.AnyAsync(f => f.ProductId == id && f.UserId == Me, ct);
         }
+        var variants = await VariantsAsync(x, ct);
         return new ProductDetailsDto(x.Id, x.PageId, x.Page.Name, x.Name, x.Description, x.Price, x.ImageKeys.Select(s.Url).ToList(),
-            x.CategoryId, x.Stock, x.Available, x.Rating, x.RatingCount, mine is not null, mine, favorite);
+            x.CategoryId, x.Stock, x.Available, x.Rating, x.RatingCount, mine is not null, mine, favorite,
+            x.WidthCm, x.HeightCm, x.DepthCm, StoreKit.WallKindCode(x), variants.Count > 0 ? x.VariantLabel : null, variants);
+    }
+
+    /// <summary>Visible siblings from the same page and group only; a lone product gets an empty list.</summary>
+    private async Task<IReadOnlyList<ProductVariantDto>> VariantsAsync(Product x, CancellationToken ct)
+    {
+        if (x.VariantGroup is null) return [];
+        var rows = await Visible.Where(p => p.PageId == x.PageId && p.VariantGroup == x.VariantGroup)
+            .OrderBy(p => p.WidthCm).ThenBy(p => p.Price).ThenBy(p => p.CreatedAt)
+            .Take(kit.Options.MaxVariantsPerGroup).ToListAsync(ct);
+        if (rows.Count < 2) return [];
+        return rows.Select(p => new ProductVariantDto(p.Id, p.VariantLabel ?? p.Name, p.Name, p.Price, p.Stock, p.Available,
+            s.Url(p.ImageKeys.FirstOrDefault()), p.WidthCm, p.HeightCm, p.DepthCm, StoreKit.WallKindCode(p))).ToList();
     }
 
     public async Task<Result> ReportAsync(Guid productId, ReportProductDto dto, CancellationToken ct)

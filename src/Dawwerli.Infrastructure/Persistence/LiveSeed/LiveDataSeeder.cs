@@ -573,21 +573,26 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                 var kit = kitOf[page.Id];
                 var want = page == showcase ? o.MaxProductsPerPage : Int(o.MinProductsPerPage, o.MaxProductsPerPage);
                 if (want == 0) { productsOf[page.Id] = []; continue; }
-                var candidates = new List<(ProductSeed Seed, string Name, bool Used)>();
-                foreach (var t in kit.Products)
+                // Wall-placeable templates are always listed with every size, so the variant switcher has the full group.
+                var wall = kit.Products.Where(t => t.Wall is not null)
+                    .SelectMany(t => t.Variants!.Select((v, i) => (Seed: t, Name: $"{t.Name} {v}", Used: false, Variant: i))).Take(want).ToList();
+                var candidates = new List<(ProductSeed Seed, string Name, bool Used, int Variant)>();
+                foreach (var t in kit.Products.Where(t => t.Wall is null))
                 {
-                    if (t.Variants is { Length: > 0 }) candidates.AddRange(t.Variants.Select(v => (t, $"{t.Name} {v}", false)));
-                    else candidates.Add((t, t.Name, false));
-                    if (t.CanBeUsed) candidates.Add((t, $"{t.Name} مستعمل", true));
+                    if (t.Variants is { Length: > 0 }) candidates.AddRange(t.Variants.Select(v => (t, $"{t.Name} {v}", false, -1)));
+                    else candidates.Add((t, t.Name, false, -1));
+                    if (t.CanBeUsed) candidates.Add((t, $"{t.Name} مستعمل", true, -1));
                 }
+                var rest = want - wall.Count;
                 foreach (var v in FallbackVariants.GetValueOrDefault(kit.Slug, GenericVariants).Concat(GenericVariants).Distinct())
                 {
-                    if (candidates.Count >= want) break;
-                    candidates.AddRange(kit.Products.Select(t => (t, $"{t.Name} - {v}", false)));
+                    if (candidates.Count >= rest) break;
+                    candidates.AddRange(kit.Products.Where(t => t.Wall is null).Select(t => (t, $"{t.Name} - {v}", false, -1)));
                 }
 
                 var list = new List<Product>();
-                foreach (var (seed, name, used) in Sample(candidates, want))
+                var groupImages = new Dictionary<string, string[]>();
+                foreach (var (seed, name, used, variant) in wall.Concat(Sample(candidates, rest)))
                 {
                     var price = used ? RoundPrice(Price(seed.MinPrice, seed.MaxPrice) * (0.6 + rng.NextDouble() * 0.15)) : Price(seed.MinPrice, seed.MaxPrice);
                     var condition = used ? "الحالة: مستعمل نظيف، مفحوص ومضمون." : "الحالة: جديد بالكارتون.";
@@ -598,12 +603,28 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                         Stock = page != showcase && Chance(0.08) ? 0 : Int(1, 25), Active = page == showcase || Chance(0.95),
                         CreatedAt = Between(page.CreatedAt.AddDays(1), DaysAgo(1)),
                     };
+                    if (seed.Wall is { } w && variant >= 0) ApplyWall(p, seed, w, variant, groupImages);
                     list.Add(p);
                     templateOf[p.Id] = seed;
                 }
                 products.AddRange(list);
                 productsOf[page.Id] = list;
             }
+        }
+
+        /// <summary>Size, kind and group for one variant; prices climb with the size and the group shares one set of photos.</summary>
+        private void ApplyWall(Product p, ProductSeed seed, WallSeed w, int variant, Dictionary<string, string[]> groupImages)
+        {
+            var (width, height, depth) = w.Sizes[variant];
+            p.WidthCm = width;
+            p.HeightCm = height;
+            p.DepthCm = depth;
+            p.WallKind = w.Kind;
+            p.VariantGroup = w.Group;
+            p.VariantLabel = seed.Variants![variant];
+            p.ImageKeys = groupImages.TryGetValue(w.Group, out var shared) ? shared : groupImages[w.Group] = p.ImageKeys;
+            var step = w.Sizes.Length > 1 ? (double)variant / (w.Sizes.Length - 1) : 0;
+            p.Price = RoundPrice(seed.MinPrice + (seed.MaxPrice - seed.MinPrice) * step * (0.95 + rng.NextDouble() * 0.05));
         }
 
         private List<Page> LivePages => pages.Where(p => p.IsActive(now)).ToList();
