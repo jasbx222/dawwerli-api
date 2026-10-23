@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Dawwerli.Api.Controllers;
 
 [Route("api/admin/v1"), Authorize(Roles = Roles.Admin)]
-public sealed class AdminStoreController(AdminStoreService store) : AppController
+public sealed class AdminStoreController(AdminStoreService store, CourierService couriers) : AppController
 {
     [Authorize(Roles = AdminRoles.Super), HttpGet("seller-accounts")]
     public async Task<IActionResult> Accounts([FromQuery] Guid? pageId, CancellationToken ct) => Ok(await store.AccountsAsync(pageId, ct));
@@ -45,6 +45,9 @@ public sealed class AdminStoreController(AdminStoreService store) : AppControlle
     public async Task<IActionResult> SaveSettings(StoreSettingsDto dto, CancellationToken ct) => From(await store.SaveSettingsAsync(dto, ct));
     [Authorize(Roles = AdminRoles.Super), HttpPut("pages/{id:guid}/product-limit")]
     public async Task<IActionResult> PageLimit(Guid id, PageProductLimitDto dto, CancellationToken ct) => From(await store.SetPageLimitAsync(id, dto, ct));
+    /// <summary>Read-only list of a page's couriers (deleted ones excluded).</summary>
+    [HttpGet("pages/{id:guid}/couriers")]
+    public async Task<IActionResult> PageCouriers(Guid id, CancellationToken ct) => From(await couriers.AdminListAsync(id, ct));
 
     [HttpGet("store/orders")]
     public async Task<IActionResult> Orders([FromQuery] string? status, [FromQuery] Guid? pageId, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>

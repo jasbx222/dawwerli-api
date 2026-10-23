@@ -210,6 +210,53 @@ public class StoreTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task Portal_manages_couriers_assigns_one_on_dispatch_and_admin_can_read_them()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s = await SellerAsync(c, admin);
+        var other = await SellerAsync(c, admin);
+        async Task<string> Add(string token, string name, string phone)
+        {
+            var r = await c.SendAsync(Req("POST", "/api/seller/v1/couriers", token, new { name, phone }));
+            Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+            return (await r.ReadAsync()).GetProperty("id").GetString()!;
+        }
+        var mine = await Add(s.Token, "حسن", "+9647801234567");
+        var spare = await Add(s.Token, "كرار", "07701112233");
+        var theirs = await Add(other.Token, "زيد", "07709998877");
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.SendAsync(Req("POST", "/api/seller/v1/couriers", s.Token, new { name = "x", phone = "123" }))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("PUT", $"/api/seller/v1/couriers/{theirs}", s.Token, new { name = "x", phone = "07701234567" }))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("DELETE", $"/api/seller/v1/couriers/{theirs}", s.Token))).StatusCode);
+        (await c.SendAsync(Req("PUT", $"/api/seller/v1/couriers/{spare}", s.Token, new { name = "كرار", phone = "07701112233", active = false }))).EnsureSuccessStatusCode();
+
+        var list = await (await c.SendAsync(Req("GET", "/api/seller/v1/couriers", s.Token))).ReadAsync();
+        Assert.Equal(2, list.GetArrayLength());
+        Assert.Equal("07801234567", list[0].GetProperty("phone").GetString());
+        Assert.False(list[1].GetProperty("active").GetBoolean());
+
+        var p = await ProductIdAsync(c, s.Token);
+        var customer = await Api.CustomerAsync(c);
+        var id = (await CheckoutAsync(c, customer, p, 1)).GetProperty("orderId").GetString();
+        (await c.SendAsync(Req("POST", $"/api/seller/v1/orders/{id}/status", s.Token, new { status = "accepted" }))).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("POST", $"/api/seller/v1/orders/{id}/status", s.Token, new { status = "out_for_delivery", courierId = theirs }))).StatusCode);
+        var sent = await c.SendAsync(Req("POST", $"/api/seller/v1/orders/{id}/status", s.Token, new { status = "out_for_delivery", courierId = mine }));
+        Assert.Equal(HttpStatusCode.OK, sent.StatusCode);
+        Assert.Equal("حسن", (await sent.ReadAsync()).GetProperty("order").GetProperty("courier").GetProperty("name").GetString());
+
+        var seen = await (await c.SendAsync(Req("GET", $"/api/admin/v1/pages/{s.PageId}/couriers", admin))).ReadAsync();
+        Assert.Equal(2, seen.GetArrayLength());
+        Assert.Equal(HttpStatusCode.NotFound, (await c.SendAsync(Req("GET", $"/api/admin/v1/pages/{Guid.NewGuid()}/couriers", admin))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(Req("GET", $"/api/admin/v1/pages/{s.PageId}/couriers", customer))).StatusCode);
+        var orders = await (await c.SendAsync(Req("GET", $"/api/admin/v1/store/orders?pageId={s.PageId}", admin))).ReadAsync();
+        Assert.Equal("07801234567", orders.GetProperty("items")[0].GetProperty("courier").GetProperty("phone").GetString());
+
+        Assert.True((await c.SendAsync(Req("DELETE", $"/api/seller/v1/couriers/{mine}", s.Token))).IsSuccessStatusCode);
+        Assert.Equal(1, (await (await c.SendAsync(Req("GET", $"/api/admin/v1/pages/{s.PageId}/couriers", admin))).ReadAsync()).GetArrayLength());
+    }
+
+    [Fact]
     public async Task Electronic_payment_without_provider_returns_not_configured_and_keeps_cart()
     {
         var c = await factory.ClientAsync();
@@ -221,6 +268,39 @@ public class StoreTests(ApiFactory factory)
         Assert.Equal("payment.not_configured", Code(await r.ReadAsync()));
         Assert.Equal(5, await StockAsync(c, p));
         Assert.Equal(1, (await (await c.SendAsync(Req("GET", "/api/v1/cart", customer))).ReadAsync()).GetProperty("items").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Portal_page_routes_act_for_the_sellers_own_page_only()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s1 = await SellerAsync(c, admin);
+        var s2 = await SellerAsync(c, admin);
+
+        var me = await (await c.SendAsync(Req("GET", "/api/seller/v1/page", s1.Token))).ReadAsync();
+        Assert.Equal(s1.PageId.ToString(), me.GetProperty("id").GetString());
+        Assert.True(me.TryGetProperty("followerCount", out _));
+        Assert.Equal(s2.PageId.ToString(), (await (await c.SendAsync(Req("GET", "/api/seller/v1/page", s2.Token))).ReadAsync()).GetProperty("id").GetString());
+
+        foreach (var path in new[] { "wallet", "ledger", "ads", "ads/eligibility", "standing", "ratings", "offers", "inbox", "settings" })
+            Assert.Equal(HttpStatusCode.OK, (await c.SendAsync(Req("GET", $"/api/seller/v1/page/{path}", s1.Token))).StatusCode);
+
+        var settings = await (await c.SendAsync(Req("GET", "/api/seller/v1/page/settings", s1.Token))).ReadAsync();
+        (await c.SendAsync(Req("PUT", "/api/seller/v1/page/settings", s1.Token, new
+        {
+            receiving = false, sound = true, categoryIds = new[] { Category }, governorateIds = new[] { 1 },
+            from = settings.GetProperty("from").GetInt32(), to = settings.GetProperty("to").GetInt32(), days = new[] { 0, 1, 2 },
+        }))).EnsureSuccessStatusCode();
+        Assert.False((await (await c.SendAsync(Req("GET", "/api/seller/v1/page/settings", s1.Token))).ReadAsync()).GetProperty("receiving").GetBoolean());
+        Assert.True((await (await c.SendAsync(Req("GET", "/api/seller/v1/page/settings", s2.Token))).ReadAsync()).GetProperty("receiving").GetBoolean());
+
+        var appPage = await Api.VerifiedPageAsync(c, admin, Category);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(Req("GET", "/api/seller/v1/page/wallet", appPage))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(Req("GET", "/api/seller/v1/page/wallet", null))).StatusCode);
+
+        (await c.SendAsync(Req("POST", $"/api/admin/v1/seller-accounts/{s1.AccountId}/disable", admin))).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(Req("GET", "/api/seller/v1/page/wallet", s1.Token))).StatusCode);
     }
 
     [Fact]
@@ -727,6 +807,11 @@ public class StoreTests(ApiFactory factory)
         var ok = await UploadAsync(c, s.Token, "products", "shirt.png", png);
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         Assert.StartsWith("products/", (await ok.ReadAsync()).GetProperty("key").GetString());
+
+        var receipt = await UploadAsync(c, s.Token, "receipts", "r.png", png);
+        Assert.StartsWith("receipts/", (await receipt.ReadAsync()).GetProperty("key").GetString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await UploadAsync(c, s.Token, "disputes", "d.png", png)).StatusCode);
+        Assert.Equal("media.type", Code(await (await UploadAsync(c, s.Token, "receipts", "r.pdf", "%PDF-1.4"u8.ToArray())).ReadAsync()));
     }
 
     [Fact]

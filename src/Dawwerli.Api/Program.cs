@@ -26,6 +26,7 @@ config.Sources.Insert(0, new Microsoft.Extensions.Configuration.Json.JsonConfigu
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(config, runWorker: config.GetValue("Jobs:Enabled", true));
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<SellerActingPage>();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 builder.Services.AddScoped<ICurrentSeller, HttpCurrentSeller>();
 builder.Services.AddSingleton<IRealtime, SignalRRealtime>();
