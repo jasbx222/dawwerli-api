@@ -2,6 +2,7 @@ using System.Text.Json;
 using Dawwerli.Application.Abstractions;
 using Dawwerli.Domain.Entities;
 using Dawwerli.Domain.Rules;
+using Dawwerli.Infrastructure.Persistence.LiveSeed;
 using Dawwerli.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -12,19 +13,20 @@ namespace Dawwerli.Infrastructure.Persistence;
 
 /// <summary>Applies migrations and inserts reference data (idempotent). The only place seed data lives.</summary>
 public sealed class Seeder(AppDbContext db, IConfiguration config, IStorage storage, IPasswordHasher passwords,
-    IOptions<AdminSeedOptions> admin, ScenarioSeeder scenario, ILogger<Seeder> log)
+    IOptions<AdminSeedOptions> admin, IOptions<LiveSeedOptions> live, LiveDataSeeder liveSeeder, ScenarioSeeder scenario, ILogger<Seeder> log)
 {
     private sealed record CategorySeed(string Slug, string Name, string? Emoji, string Image, string Badge, string[] Keywords, JsonElement Schema);
     private sealed record CatalogSeed(string[] Governorates, Dictionary<string, string[]> Adjacency, CategorySeed[] Categories, string[] BannedKeywords);
 
-    public async Task RunAsync(CancellationToken ct = default)
+    /// <param name="includeDemoData">False for the seed-live command: reference data only, no demo scenario or startup live seed.</param>
+    public async Task RunAsync(CancellationToken ct = default, bool includeDemoData = true)
     {
         await db.Database.MigrateAsync(ct);
         var dir = Path.Combine(AppContext.BaseDirectory, "Persistence", "Seed");
         var seed = JsonSerializer.Deserialize<CatalogSeed>(await File.ReadAllTextAsync(Path.Combine(dir, "catalog.json"), ct),
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
 
-        if (!await db.Settings.AnyAsync(ct))
+        if (!await db.Settings.AnyAsync(x => x.Id == RulesProvider.SettingsId, ct))
         {
             var rules = config.GetSection("Business").Get<BusinessRules>() ?? throw new InvalidOperationException("Business section missing");
             db.Settings.Add(new SettingsRecord { Id = RulesProvider.SettingsId, Data = JsonSerializer.Serialize(rules), UpdatedAt = DateTime.UtcNow });
@@ -65,6 +67,9 @@ public sealed class Seeder(AppDbContext db, IConfiguration config, IStorage stor
             log.LogInformation("Seeded admin account");
         }
         await db.SaveChangesAsync(ct);
+        if (!includeDemoData) return;
+        // Seed:Live=true: one-time wipe + live data, guarded by a marker row (runs before the demo scenario, which then skips).
+        if (live.Value.Live) await liveSeeder.RunOnStartupAsync(ct);
         await scenario.RunAsync(ct);
     }
 }
