@@ -379,7 +379,7 @@ public class LiveSeederTests(LiveSeedApiFactory factory) : IClassFixture<LiveSee
             var mine = after.Where(p => p.PageId == page.Id).ToList();
             Assert.NotEmpty(mine);
             Assert.All(mine.Where(p => p.WallKind == null), p => Assert.Null(p.WidthCm));
-            Assert.Equal(before.Count - mine.Count(p => p.WallKind == null), report.Created.Single().Value);
+            Assert.Equal(before.Count - mine.Count(p => p.WallKind == null), report.Created.Single(kv => kv.Key == LiveDataSeeder.BackfillSized).Value);
             // Same rows, same ids, and the same sizes a fresh seed gives.
             Assert.Equal(before.Count, after.Count(p => p.WallKind == null));
             Assert.All(after.Where(p => p.WallKind == null && p.PageId != page.Id), p =>
@@ -395,6 +395,136 @@ public class LiveSeederTests(LiveSeedApiFactory factory) : IClassFixture<LiveSee
             await seeder.BackfillDimensionsAsync();
         }
         Assert.All(await db.Products.AsNoTracking().ToListAsync(), p => Assert.True(Sized(p)));
+    }
+
+    /// <summary>Wall kind code the seed gives a product name, or null for a non-wall product.</summary>
+    private static string? ExpectedWallKind(string name) =>
+        LiveSeedData.Kits.SelectMany(k => k.Products).Where(t => t.Wall is not null && t.Variants is not null)
+            .FirstOrDefault(t => t.Variants!.Any(v => name == $"{t.Name} {v}"))?.Wall!.Kind.ToString().ToLowerInvariant();
+
+    private async Task<string> ShowcaseSellerTokenAsync(HttpClient c)
+    {
+        var login = await c.PostAsJsonAsync("/api/seller/v1/auth/login", new { email = LiveDataSeeder.ShowcaseSellerEmail, password = "seller-pass-123" });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        return (await login.ReadAsync()).GetProperty("accessToken").GetString()!;
+    }
+
+    private static async Task<System.Text.Json.JsonElement> GetAsync(HttpClient c, string url, string? token = null)
+    {
+        using var m = new HttpRequestMessage(HttpMethod.Get, url);
+        if (token is not null) m.Headers.Authorization = new("Bearer", token);
+        var r = await c.SendAsync(m);
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        return await r.ReadAsync();
+    }
+
+    /// <summary>
+    /// What the dashboard and the app read: the seller form turns «يتعلّق على الحايط» on and picks the kind from
+    /// <c>wallKind</c>; the app shows «حطها على حايطك» when wallKind, widthCm and heightCm are all set.
+    /// </summary>
+    private async Task AssertShowcaseWallThroughApiAsync(AppDbContext db)
+    {
+        var c = factory.CreateClient();
+        var token = await ShowcaseSellerTokenAsync(c);
+        var list = await GetAsync(c, "/api/seller/v1/products?page=1&pageSize=50", token);
+        var items = list.GetProperty("items").EnumerateArray().ToList();
+        Assert.NotEmpty(items);
+        foreach (var p in items)
+        {
+            var name = p.GetProperty("name").GetString()!;
+            var kind = p.GetProperty("wallKind");
+            var expected = ExpectedWallKind(name);
+            if (expected is null) { Assert.True(kind.ValueKind == System.Text.Json.JsonValueKind.Null, $"{name} should not hang on a wall"); continue; }
+            Assert.Equal(expected, kind.GetString());
+            Assert.Equal(System.Text.Json.JsonValueKind.Number, p.GetProperty("widthCm").ValueKind);
+            Assert.Equal(System.Text.Json.JsonValueKind.Number, p.GetProperty("heightCm").ValueKind);
+            Assert.False(string.IsNullOrEmpty(p.GetProperty("variantGroup").GetString()));
+        }
+        // Every wall kind the seed uses on this page comes back; the TV group is complete.
+        var tvs = items.Where(p => p.GetProperty("wallKind").ValueKind == System.Text.Json.JsonValueKind.String && p.GetProperty("wallKind").GetString() == "tv").ToList();
+        Assert.Equal(3, tvs.Count);
+        var tvId = tvs[0].GetProperty("id").GetString()!;
+        Assert.Equal("tv", (await GetAsync(c, $"/api/seller/v1/products/{tvId}", token)).GetProperty("wallKind").GetString());
+        var details = await GetAsync(c, $"/api/v1/products/{tvId}");
+        Assert.Equal("tv", details.GetProperty("wallKind").GetString());
+        Assert.Equal(System.Text.Json.JsonValueKind.Number, details.GetProperty("widthCm").ValueKind);
+        Assert.Equal(3, details.GetProperty("variants").GetArrayLength());
+        // And in the database: every wall-template product of every page.
+        var all = await db.Products.AsNoTracking().Select(p => new { p.Name, p.WallKind }).ToListAsync();
+        Assert.All(all, p => Assert.Equal(ExpectedWallKind(p.Name), p.WallKind?.ToString().ToLowerInvariant()));
+    }
+
+    [Fact]
+    public async Task Seeded_wall_products_have_the_wall_switch_on_and_their_kind_in_the_api()
+    {
+        var (scope, db, _, _) = await OpenAsync();
+        await using var __ = scope;
+        await AssertShowcaseWallThroughApiAsync(db);
+        // Each kind the templates use appears in the seed.
+        var kinds = await db.Products.Where(p => p.WallKind != null).Select(p => p.WallKind!.Value).Distinct().ToListAsync();
+        Assert.Equal(new[] { WallKind.Tv, WallKind.Mirror, WallKind.Frame, WallKind.Art, WallKind.Rug }.Order(), kinds.Order());
+    }
+
+    [Fact]
+    public async Task Backfill_marks_wall_products_that_already_had_a_size_and_adds_missing_ones()
+    {
+        var (scope, db, seeder, _) = await OpenAsync();
+        await using var __ = scope;
+        var showcase = await db.Pages.AsNoTracking().SingleAsync(p => p.InstagramHandle == LiveDataSeeder.ShowcaseHandle);
+        var expected = await db.Products.AsNoTracking().Where(p => p.WallKind != null)
+            .Select(p => new { p.Id, p.WidthCm, p.HeightCm, p.DepthCm, p.WallKind, p.VariantGroup, p.VariantLabel }).ToDictionaryAsync(p => p.Id);
+        var showcaseWall = await db.Products.AsNoTracking().Where(p => p.PageId == showcase.Id && p.WallKind != null)
+            .Select(p => new { p.Id, p.Name }).ToListAsync();
+        var otherPage = await db.Products.AsNoTracking().Where(p => p.PageId != showcase.Id && p.WallKind != null).Select(p => p.PageId).FirstAsync();
+        var missing = await db.Products.AsNoTracking().Where(p => p.PageId == otherPage && p.WallKind != null)
+            .Select(p => new { p.Id, p.Name }).ToListAsync();
+        var sofa = await db.Products.AsNoTracking().Where(p => p.WallKind == null && p.Name.StartsWith("قنفة")).Select(p => p.Id).FirstAsync();
+        var total = await db.Products.CountAsync();
+        Assert.NotEmpty(missing);
+
+        // The server state that was reported: wall products with a size (the old category fallback) but no kind or group.
+        await db.Products.Where(p => p.WallKind != null && p.PageId != otherPage).ExecuteUpdateAsync(s => s
+            .SetProperty(p => p.WidthCm, 30m).SetProperty(p => p.HeightCm, 20m).SetProperty(p => p.DepthCm, 10m)
+            .SetProperty(p => p.WallKind, (WallKind?)null).SetProperty(p => p.VariantGroup, (string?)null).SetProperty(p => p.VariantLabel, (string?)null));
+        // A page seeded before the wall templates existed: no TV/mirror/art products at all.
+        foreach (var (m, i) in missing.Select((m, i) => (m, i)))
+            await db.Products.Where(p => p.Id == m.Id).ExecuteUpdateAsync(s => s.SetProperty(p => p.Name, $"منتج قديم {i}")
+                .SetProperty(p => p.WallKind, (WallKind?)null).SetProperty(p => p.VariantGroup, (string?)null).SetProperty(p => p.VariantLabel, (string?)null));
+        // A non-wall product that wrongly has a kind.
+        await db.Products.Where(p => p.Id == sofa).ExecuteUpdateAsync(s => s.SetProperty(p => p.WallKind, WallKind.Tv));
+        try
+        {
+            var report = (await seeder.BackfillDimensionsAsync()).Created.ToDictionary(kv => kv.Key, kv => kv.Value);
+            Assert.Equal(expected.Count - missing.Count, report[LiveDataSeeder.BackfillWallMarked]);
+            Assert.Equal(missing.Count, report[LiveDataSeeder.BackfillWallAdded]);
+            Assert.Equal(1, report[LiveDataSeeder.BackfillKindCleared]);
+            Assert.Equal(0, report[LiveDataSeeder.BackfillSized]);
+
+            // Same ids, the exact size/kind/group/label of a fresh seed.
+            var after = await db.Products.AsNoTracking().Where(p => expected.Keys.Contains(p.Id)).ToListAsync();
+            Assert.All(after.Where(p => p.PageId != otherPage), p =>
+                Assert.Equal(expected[p.Id], new { p.Id, p.WidthCm, p.HeightCm, p.DepthCm, p.WallKind, p.VariantGroup, p.VariantLabel }));
+            Assert.Null((await db.Products.AsNoTracking().SingleAsync(p => p.Id == sofa)).WallKind);
+            // The old page got the full wall groups back as new products.
+            var added = await db.Products.AsNoTracking().Where(p => p.PageId == otherPage && p.WallKind != null).ToListAsync();
+            Assert.Equal(missing.Select(m => m.Name).Order(), added.Select(p => p.Name).Order());
+            Assert.All(added, p => { Assert.True(Sized(p)); Assert.NotNull(p.VariantGroup); Assert.NotEmpty(p.ImageKeys); Assert.True(p.Visible); });
+            Assert.Equal(total + missing.Count, await db.Products.CountAsync());
+            await AssertShowcaseWallThroughApiAsync(db);
+
+            // Idempotent: a second run changes nothing.
+            var again = (await seeder.BackfillDimensionsAsync()).Created;
+            Assert.All(again, kv => Assert.Equal(0, kv.Value));
+        }
+        finally
+        {
+            await db.Products.Where(p => p.PageId == otherPage && p.WallKind != null && !expected.Keys.Contains(p.Id)).ExecuteDeleteAsync();
+            foreach (var m in missing) await db.Products.Where(p => p.Id == m.Id).ExecuteUpdateAsync(s => s.SetProperty(p => p.Name, m.Name));
+            await seeder.BackfillDimensionsAsync();
+        }
+        Assert.Equal(total, await db.Products.CountAsync());
+        Assert.Equal(expected.Count, await db.Products.CountAsync(p => p.WallKind != null));
+        Assert.Equal(showcaseWall.Count, await db.Products.CountAsync(p => p.PageId == showcase.Id && p.WallKind != null));
     }
 
     [Fact]
