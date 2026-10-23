@@ -36,6 +36,7 @@ public sealed class SellerPageController(PageService pages, OfferService offers,
     [HttpPost("topups"), Idempotent] public async Task<IActionResult> TopUp(CreateTopUpDto dto, CancellationToken ct) => From(await wallet.TopUpAsync(dto, ct));
 
     [HttpGet("ads")] public async Task<IActionResult> Ads(CancellationToken ct) => From(await ads.MineAsync(ct));
+    [HttpGet("ads/pricing")] public async Task<IActionResult> AdPricing(CancellationToken ct) => Ok(await ads.PricingAsync(ct));
     [HttpGet("ads/eligibility")] public async Task<IActionResult> Eligibility(CancellationToken ct) => From(await ads.EligibilityAsync(ct));
     [HttpPost("ads"), Idempotent] public async Task<IActionResult> CreateAd(CreateAdDto dto, CancellationToken ct) => From(await ads.CreateAsync(dto, ct));
     [HttpPost("ads/{id:guid}/pause")] public async Task<IActionResult> PauseAd(Guid id, CancellationToken ct) => From(await ads.PauseAsync(id, ct));

@@ -26,8 +26,11 @@ public sealed class AdsService(Shared s, WalletService wallet, ITextCatalog text
         var list = await q.ToListAsync(ct);
         if (list.Count == 0) return null;
         var a = list[Random.Shared.Next(list.Count)];
-        return new AdBannerDto(a.Id, a.PageId, a.Page?.Name ?? a.Title, a.Title, a.Headline, a.DiscountPercent, s.Url(a.ImageKey), a.DeepLink);
+        return Banner(a);
     }
+
+    private AdBannerDto Banner(AdCampaign a) => new(a.Id, a.PageId, a.Page?.Name ?? a.Title, a.Title, a.Headline, a.DiscountPercent,
+        s.Url(a.ImageKey), a.DeepLink, s.Url(a.Page?.ImageKey), a.Page?.InstagramHandle, a.Page?.Status == PageStatus.Verified);
 
     public async Task<Result<AdEligibilityDto>> EligibilityAsync(CancellationToken ct)
     {
@@ -56,10 +59,21 @@ public sealed class AdsService(Shared s, WalletService wallet, ITextCatalog text
         _ => r.SponsoredOffer,
     };
 
+    /// <summary>Live daily price per slot plus the sponsored popup timing, for the booking screens.</summary>
+    public async Task<AdPricingDto> PricingAsync(CancellationToken ct)
+    {
+        var r = await s.Rules(ct);
+        return new AdPricingDto(DailyPrice(AdSlot.HomeBanner, r), DailyPrice(AdSlot.FeaturedPage, r), DailyPrice(AdSlot.SponsoredOffer, r),
+            r.PopupDurationSec, r.PopupIntervalMin, r.PopupFirstDelaySec, r.PopupMaxPerAdPerDay);
+    }
+
     public async Task<Result<AdDto>> CreateAsync(CreateAdDto dto, CancellationToken ct)
     {
         if (!EnumText.TryParse<AdSlot>(dto.Slot, out var slot)) return Errors.BadEnum("slot");
         if (dto.Days < 1) return Error.Validation("days.min", "Book at least one day");
+        // The sponsored ad is shown as an image popup; without an image the app would always skip it.
+        if (slot == AdSlot.SponsoredOffer && string.IsNullOrWhiteSpace(dto.ImageKey))
+            return Error.Validation("ads.image", "A sponsored popup ad needs an image");
         var page = await s.MyPageAsync(ct);
         if (page is null) return Errors.NotPage;
         if (!(await EligibilityAsync(page, ct)).Eligible) return Error.Rule("ads.not_eligible", "Page is not eligible to advertise");
@@ -119,8 +133,7 @@ public sealed class AdsService(Shared s, WalletService wallet, ITextCatalog text
         if (!EnumText.TryParse<AdSlot>(slot, out var sl)) return [];
         var q = Running(sl).Include(a => a.Page).Where(a => a.GovernorateIds.Length == 0 || a.GovernorateIds.Contains(governorateId));
         if (categoryId is { } c) q = q.Where(a => a.CategoryIds.Length == 0 || a.CategoryIds.Contains(c));
-        return (await q.ToListAsync(ct)).Select(a => new AdBannerDto(a.Id, a.PageId, a.Page?.Name ?? a.Title, a.Title, a.Headline,
-            a.DiscountPercent, s.Url(a.ImageKey), a.DeepLink)).ToList();
+        return (await q.ToListAsync(ct)).Select(Banner).ToList();
     }
 
     /// <summary>Counts an impression/click, deduplicated per device per hour.</summary>

@@ -106,6 +106,9 @@ public sealed class PagesController(PageService pages, OfferService offers, Orde
     [HttpGet("pages/me/ads"), HttpGet("page/ads")]
     public async Task<IActionResult> Ads(CancellationToken ct) => From(await ads.MineAsync(ct));
 
+    [HttpGet("pages/me/ads/pricing")]
+    public async Task<IActionResult> AdPricing(CancellationToken ct) => Ok(await ads.PricingAsync(ct));
+
     [HttpGet("pages/me/ads/eligibility")]
     public async Task<IActionResult> Eligibility(CancellationToken ct) => From(await ads.EligibilityAsync(ct));
 

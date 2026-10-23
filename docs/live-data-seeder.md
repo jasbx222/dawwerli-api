@@ -69,6 +69,9 @@ Where each ad shows in the apps:
   sorted first. The list takes the top 20 pages, so the seeder gives featured ads to pages that are inside that top 20.
 - **SponsoredOffer**: the page's first offer on a request is marked sponsored and pinned on the request
   (`requests.sponsored_offer_id`), as `OfferService` does; customers see it on top of the offers list.
+  The app shows running sponsored ads to customers as the timed home popup, so every seeded sponsored ad has an image
+  (first product photo, else the page photo, else a banner) and a short popup headline. Popup timing comes from the
+  business settings (`PopupDurationSec`, `PopupIntervalMin`, `PopupFirstDelaySec`, `PopupMaxPerAdPerDay`).
 - Sellers see their own ads at `GET /api/v1/pages/me/ads` and in the seller portal; admins at `GET /api/admin/v1/ads?status=`.
 
 ### Categories

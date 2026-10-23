@@ -299,6 +299,9 @@ public sealed class AdminService(Shared s, WalletService wallet, TrustService tr
     {
         if (rules.MaxOffers < 1 || rules.MaxEarlySlots < 0 || rules.MaxEarlySlots > rules.MaxOffers)
             return Error.Validation("settings.slots", "MaxEarlySlots must be between 0 and MaxOffers");
+        if (rules.PopupDurationSec is < 1 or > 60 || rules.PopupIntervalMin is < 1 or > 1440
+            || rules.PopupFirstDelaySec is < 0 or > 3600 || rules.PopupMaxPerAdPerDay < 0)
+            return Error.Validation("settings.popup", "Popup duration must be 1-60 s, interval 1-1440 min, first delay 0-3600 s and the daily cap 0 or more");
         await rulesProvider.UpdateAsync(rules, ct);
         s.Audit("settings.update", "Settings", 1, JsonSerializer.Serialize(rules));
         await Db.SaveChangesAsync(ct);
