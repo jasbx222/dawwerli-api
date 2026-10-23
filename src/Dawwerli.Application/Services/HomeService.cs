@@ -68,7 +68,7 @@ public sealed class HomeService(Shared s, AdsService ads, RequestService request
             localPages.Select(p => new StoryDto(p.Id, p.Name, s.Url(p.ImageKey), false)).ToList(),
             live is null ? null : await requests.ToLiveAsync(live, ct),
             feedRows.Take(take).Select(Feed).ToList(), stats,
-            categories.Select(c => new TrendingCategoryDto(c.Id, c.Name, s.Url(c.ImageKey), c.Badge.Code())).ToList(),
+            categories.Select(c => new TrendingCategoryDto(c.Id, c.Name, s.Url(c.ImageKey), c.Badge.Code(), c.Slug)).ToList(),
             feedRows.Where(r => r.GovernorateId == govId).Take(take).Select(Feed).ToList(),
             deals.Where(o => o.Request!.MaxPrice > o.Offer!.Price)
                 .Select(o => new DealDto(o.Request!.Category!.Name, o.Page!.Name, o.Request.MaxPrice - o.Offer!.Price, s.Url(o.Request.Category.ImageKey))).ToList(),

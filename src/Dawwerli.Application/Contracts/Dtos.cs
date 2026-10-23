@@ -105,7 +105,8 @@ public sealed record AdEventDto(string Type, string? DeviceId);
 public sealed record StoryDto(Guid PageId, string Name, string? Image, bool IsAd);
 public sealed record FeedItemDto(string Category, string Governorate, int Offers, string? Image);
 public sealed record HomeStatsDto(int? VerifiedPages, int? Governorates, int? AvgFirstOfferMinutes);
-public sealed record TrendingCategoryDto(int Id, string Name, string? Image, string Badge);
+/// <summary>Home category tile; <c>Slug</c> is the stable key clients map to an icon.</summary>
+public sealed record TrendingCategoryDto(int Id, string Name, string? Image, string Badge, string Slug);
 public sealed record DealDto(string Category, string PageName, long Saved, string? Image);
 public sealed record HomeDto(string? FirstName, string? Area, string Governorate, bool HasUnreadNotifications, IReadOnlyList<StoryDto> Stories,
     LiveRequestDto? LiveRequest, IReadOnlyList<FeedItemDto> Ticker, HomeStatsDto Stats, IReadOnlyList<TrendingCategoryDto> Categories,
