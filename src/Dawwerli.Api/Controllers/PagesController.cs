@@ -148,6 +148,9 @@ public sealed class DiscoverController(HomeService home, PageService pages, AdsS
     public async Task<IActionResult> Ads([FromQuery] string slot, [FromQuery] int governorateId, [FromQuery] int? categoryId, CancellationToken ct) =>
         Ok(await ads.ServeAsync(slot, governorateId, categoryId, ct));
 
+    [HttpGet("ads/popup-settings")]
+    public async Task<IActionResult> AdPopupSettings(CancellationToken ct) => Ok(await ads.PopupSettingsAsync(ct));
+
     [HttpPost("ads/{id:guid}/events")]
     public async Task<IActionResult> AdEvent(Guid id, AdEventDto dto, CancellationToken ct) => From(await ads.TrackAsync(id, dto, ct));
 }

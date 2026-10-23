@@ -67,6 +67,13 @@ public sealed class AdsService(Shared s, WalletService wallet, ITextCatalog text
             r.PopupDurationSec, r.PopupIntervalMin, r.PopupFirstDelaySec, r.PopupMaxPerAdPerDay);
     }
 
+    /// <summary>Popup timing set by the admin; read by the customer app before it shows a sponsored popup.</summary>
+    public async Task<AdPopupSettingsDto> PopupSettingsAsync(CancellationToken ct)
+    {
+        var r = await s.Rules(ct);
+        return new AdPopupSettingsDto(r.PopupDurationSec, r.PopupIntervalMin, r.PopupFirstDelaySec, r.PopupMaxPerAdPerDay);
+    }
+
     public async Task<Result<AdDto>> CreateAsync(CreateAdDto dto, CancellationToken ct)
     {
         if (!EnumText.TryParse<AdSlot>(dto.Slot, out var slot)) return Errors.BadEnum("slot");

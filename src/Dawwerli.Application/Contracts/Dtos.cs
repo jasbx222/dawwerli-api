@@ -105,6 +105,8 @@ public sealed record AdEventDto(string Type, string? DeviceId);
 /// <summary>Daily price per slot (total = days x price) and the sponsored popup timing set by the admin.</summary>
 public sealed record AdPricingDto(long HomeBanner, long FeaturedPage, long SponsoredOffer, int PopupDurationSec, int PopupIntervalMin,
     int PopupFirstDelaySec, int PopupMaxPerAdPerDay);
+/// <summary>Popup timing for the customer app (public, no login).</summary>
+public sealed record AdPopupSettingsDto(int DurationSec, int IntervalMin, int FirstDelaySec, int MaxPerAdPerDay);
 
 // ---- home / notifications / config
 public sealed record StoryDto(Guid PageId, string Name, string? Image, bool IsAd);

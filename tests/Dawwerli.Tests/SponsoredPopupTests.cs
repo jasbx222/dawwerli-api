@@ -48,6 +48,13 @@ public class SponsoredPopupTests(ApiFactory factory)
         var pricing = await OkAsync(await c.SendAsync(Req("GET", "/api/v1/pages/me/ads/pricing", page)));
         Assert.Equal(cfg.GetProperty("sponsoredOffer").GetInt64(), pricing.GetProperty("sponsoredOffer").GetInt64());
         Assert.Equal(5, pricing.GetProperty("popupDurationSec").GetInt32());
+
+        // Guests see the popup too, so its timing is public.
+        var popup = await OkAsync(await c.GetAsync("/api/v1/ads/popup-settings"));
+        Assert.Equal(5, popup.GetProperty("durationSec").GetInt32());
+        Assert.Equal(10, popup.GetProperty("intervalMin").GetInt32());
+        Assert.Equal(3, popup.GetProperty("firstDelaySec").GetInt32());
+        Assert.Equal(0, popup.GetProperty("maxPerAdPerDay").GetInt32());
     }
 
     [Fact]
@@ -67,6 +74,8 @@ public class SponsoredPopupTests(ApiFactory factory)
             var customer = await Api.CustomerAsync(c);
             var cfg = await OkAsync(await c.SendAsync(Req("GET", "/api/v1/config", customer)));
             Assert.Equal(25, cfg.GetProperty("popupIntervalMin").GetInt32());
+            var popup = await OkAsync(await c.GetAsync("/api/v1/ads/popup-settings"));
+            Assert.Equal(25, popup.GetProperty("intervalMin").GetInt32());
         }
         finally
         {
