@@ -36,7 +36,9 @@ public static class LiveSeedCommand
           --wipe     delete all non-admin data first (admins, settings, catalog and audit log are kept); refused when
                      real (non-seeded) users exist, unless --include-real-users is also given
           --include-real-users  with --wipe: delete real users and everything they own too
-          --backfill-dimensions add width/height/depth (cm) to seeded products that have none; deletes nothing
+          --backfill-dimensions update seeded products in place; deletes nothing: sizes (cm) where missing,
+                                wall kind + variant size/group for TVs, mirrors, art, frames and rugs
+                                (also when they already had a size), and the missing wall products
           --backfill-categories move seeded products to their template's category (earbuds on a phone shop ->
                      electronics, a fridge on a home shop -> appliances); deletes nothing, safe to repeat
           --confirm  required for anything that writes
@@ -101,9 +103,9 @@ public static class LiveSeedCommand
             }
             if (backfill)
             {
-                Console.WriteLine("Adding sizes to seeded products (nothing is deleted)...");
+                Console.WriteLine("Updating seeded products: sizes, wall kinds and wall products (nothing is deleted)...");
                 var b = await seeder.BackfillDimensionsAsync();
-                Console.WriteLine($"Done in {b.Elapsed.TotalSeconds:F1}s: sized {b.Created.Sum(kv => kv.Value)} products. Marker {LiveDataSeeder.MarkerName} written.");
+                Console.WriteLine($"Done in {b.Elapsed.TotalSeconds:F1}s: {string.Join(", ", b.Created.Select(kv => $"{kv.Key}={kv.Value}"))}. Marker {LiveDataSeeder.MarkerName} written.");
             }
             return 0;
         }

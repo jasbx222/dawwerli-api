@@ -26,7 +26,7 @@ how many real users there are.
 History is spread over the last 180 days. Phones use fictional blocks: customers `0790001xxxx`, page users `0790002xxxx`,
 couriers `0790003xxxx`. Prices are in IQD.
 
-### Product sizes (live-seed-v3)
+### Product sizes and wall items (since live-seed-v4)
 
 Every seeded product has a real-world size in cm (`width_cm`, `height_cm`, `depth_cm`, 1 decimal, 1–1000), taken from
 its template in `LiveSeedDimensions.cs`: e.g. iPhone 15 Pro Max 7.7 × 16.0, 7-seat sofa set 230 × 85 × 90, 14 ft fridge
@@ -35,8 +35,14 @@ one shoe, furniture assembled). Depth is left empty for items thinner than 1 cm 
 Variants and "مستعمل" listings of a template share its size. Only real wall items (TVs, mirrors, canvas art, frames, wall
 rugs) have a wall kind and a variant group, so only they show «حطها على حايطك».
 
-The sizes are a lookup and do not use the random stream, so with the same `Seed__RandomSeed` and counts a v3 seed creates
-exactly the same products as v2 (same ids, names, prices, pages and seller passwords), now with sizes.
+Wall items are the wall templates: «شاشة سمارت 4K» (`tv`, 43/55/65 بوصة), «مراية دائرية بإطار ذهبي» (`mirror`),
+«لوحة كانفاس تجريدية» (`art`), «إطار صور خشب منقوش» (`frame`) and «سجادة جدارية فارسية» (`rug`). Each size is its own
+product with `wall_kind`, its own width/height/depth and one `variant_group`, so the seller form shows «يتعلّق على الحايط»
+switched on with the kind selected, and the app shows «حطها على حايطك» (it needs `wallKind`, `widthCm` and `heightCm`).
+
+The sizes are a lookup and do not use the random stream, so with the same `Seed__RandomSeed` and counts a v4 seed creates
+exactly the same products as v2/v3 seeded with the wall templates (same ids, names, prices, pages and seller passwords).
+v4 only changes the backfill (below); a fresh v3 seed was already correct.
 
 ### Showcase page
 
@@ -50,6 +56,8 @@ Page number 1 is a fixed demo store that is the busiest page in the data:
   round mirror group (60/80 cm). The showcase page and every phones, electronics, home and appliance page lists the TV
   group; home and furniture pages list the mirror, and furniture pages also the canvas art, frame and wall rug groups. Every size of a group is always listed (width/height/depth in cm, wall kind,
   page-local variant group and label), shares one set of photos and is priced from the template's min to max.
+  TVs on phones pages are filed under the electronics category (never «موبايلات»), and those pages list electronics too.
+  Data seeded before this change keeps the old category until the next full re-seed.
 
 At the end the seeder logs one line with the name, the phone, whether phone + password login is on (and for how many
 page owners) and (only when `Seed__SellerPassword` is set) the seller-portal email `rafidain.mobile@sellers.dawwerli.test`.
@@ -157,30 +165,31 @@ pg_dump -h <host> -U <user> -d <db> -Fc -f dawwerli-before-live-seed-$(date +%F-
    `Seed__MinProductsPerPage` / `Seed__MaxProductsPerPage` (default 50 / 50, max 200), `Seed__Customers`, `Seed__Offers`,
    `Seed__StoreOrders`, `Seed__Ads`, `Seed__FeaturedPages`, `Seed__HistoryDays`, `Seed__RandomSeed`.
 2. Deploy / restart. After migrations and before the API starts listening it takes a Postgres advisory lock, checks for the
-   marker row (`settings` id 9001 containing `live-seed-v3`) and, if absent, wipes and seeds in one transaction, then
+   marker row (`settings` id 9001 containing `live-seed-v5`) and, if absent, wipes and seeds in one transaction, then
    writes the marker. If real (non-seeded) users exist it deletes nothing and only adds sizes to the seeded products
    (see "Upgrading" below). If anything fails the transaction rolls back and nothing changes.
 3. Check the logs:
    ```
-   warn: ... Live seed: Seed:Live=true and no marker live-seed-v3. DELETING all seeded data and seeding live data now.
+   warn: ... Live seed: Seed:Live=true and no marker live-seed-v5. DELETING all seeded data and seeding live data now.
    warn: ... Live seed: wiped N rows: pages=…, users (non-admin)=…
    warn: ... Live seed: done in 6.2s: customers=50, page_users=500, pages=500, … Remove Seed__Live from the server environment.
    warn: ... Live seed: showcase page: مركز الرافدين للموبايلات (@rafidain.mobile), app login phone 07900020001 …
    ```
-   On later restarts: `Live seed: marker live-seed-v3 found, skipping.`
+   On later restarts: `Live seed: marker live-seed-v5 found, skipping.`
 4. Remove `Seed__Live` (and `Seed__SellerPassword`) from the server environment. The marker makes it safe if you forget,
    but don't leave it on. While the marker exists the QA demo scenario is never re-added.
 
-**Upgrading from v1/v2.** The marker key is now `live-seed-v3`. A server that already ran an older version has a
-`live-seed-v1`/`live-seed-v2` marker, which counts as "no marker": if `Seed__Live=true` is set, the next restart
-re-seeds **once**, writes `live-seed-v3`, and skips from then on:
+**Upgrading from v1–v4.** The marker key is now `live-seed-v5`. A server that already ran an older version has a
+`live-seed-v1`…`live-seed-v4` marker, which counts as "no marker": if `Seed__Live=true` is set, the next restart
+re-seeds **once**, writes `live-seed-v5`, and skips from then on:
 
 - only seeded users in the database: full wipe + reseed. With the same `Seed__RandomSeed` and counts the products are the
   same as before (same ids, names, prices), now with sizes. Orders, follows, ads… are re-created as fresh seed data.
-- real (non-seeded) users present: nothing is deleted. The seeded products that have no size get one (same values as a
-  fresh v3 seed) and are moved to their template's category (see `--backfill-categories`), and the log says `… real (non-seeded) users exist, so NOTHING is deleted. Adding sizes …`.
+- real (non-seeded) users present: nothing is deleted; both backfills below (`--backfill-dimensions` and
+  `--backfill-categories`) run instead, and the log says
+  `… real (non-seeded) users exist, so NOTHING is deleted. Updating the seeded products …`.
 
-If you do not want either, make sure `Seed__Live` is not set. To only add sizes without restarting, use
+If you do not want either, make sure `Seed__Live` is not set. To update the seeded products without restarting, use
 `seed-live --backfill-dimensions --confirm` (below).
 
 To seed again later, use the CLI with `--wipe` (it ignores the marker), or delete the marker row and restart with the flag.
@@ -192,7 +201,7 @@ The command exits without starting the web host. It uses the same configuration 
 ```bash
 dotnet Dawwerli.Api.dll seed-live --dry-run              # read only: prints host/db/user (never the password), current counts, plan
 dotnet Dawwerli.Api.dll seed-live --wipe --confirm       # wipe seeded data + seed (refused if real users exist)
-dotnet Dawwerli.Api.dll seed-live --backfill-dimensions --confirm   # only add sizes to seeded products; deletes nothing
+dotnet Dawwerli.Api.dll seed-live --backfill-dimensions --confirm   # update seeded products in place (sizes, wall kinds, wall products); deletes nothing
 dotnet Dawwerli.Api.dll seed-live --backfill-categories --confirm   # only fix seeded products' categories; deletes nothing
 dotnet Dawwerli.Api.dll seed-live --backfill-categories --backfill-dimensions --confirm   # both
 dotnet Dawwerli.Api.dll seed-live --wipe --include-real-users --confirm   # wipe ALL non-admin data, real users included
@@ -202,10 +211,20 @@ DOTNET_gcServer=0 dotnet Dawwerli.Api.dll seed-live --wipe --confirm   # lower m
 
 Without `--wipe` it refuses when pages or the marker already exist. Without `--confirm` it writes nothing.
 
-`--backfill-dimensions` sets width/height/depth on products that have none, only on pages owned by seeded page users
-(`0790002xxxx`); products of real sellers are left alone. Ids, orders, reviews, favourites and carts stay. It writes the
-`live-seed-v3` marker, so a later `Seed__Live=true` start skips. Run it again any time; products that already have a size
-are not changed.
+`--backfill-dimensions` brings the seeded products up to the current seed without deleting or re-creating anything. Only
+pages owned by seeded page users (`0790002xxxx`) are touched; products of real sellers are left alone. Ids, orders,
+reviews, favourites and carts stay.
+
+- products with no size get the size of their template (same values as a fresh seed);
+- wall products (names like «شاشة سمارت 4K 55 بوصة», «مراية دائرية بإطار ذهبي قطر 60 سم») get their wall kind, the size
+  of their variant, the variant group and label, **also when they already had a size** (the v3 backfill only filled
+  missing sizes and never set a kind);
+- a non-wall seeded product (sofa, phone…) that has a wall kind loses it;
+- pages seeded before the wall templates existed get the missing wall products (each size of each wall template of
+  their category kit). Such pages can then list a few more than 50 products. A name a seller deleted is not added back.
+
+It writes the `live-seed-v5` marker (with the counts), so a later `Seed__Live=true` start skips. It is idempotent: a second
+run reports 0 for everything. Output: `products_sized=…, wall_products_marked=…, wall_products_added=…, wall_kinds_cleared=…`.
 
 `--backfill-categories` fixes the category of seeded products made from a template that belongs to another category than
 its page's kit (`LiveSeedCategories`): earbuds and power banks on phone shops → electronics, TVs → electronics, fridges,

@@ -26,7 +26,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
 {
     /// <summary>Settings row that records a finished live seed (business settings use id 1).</summary>
     public const int MarkerId = 9001;
-    public const string MarkerName = "live-seed-v3";
+    public const string MarkerName = "live-seed-v5";
     /// <summary>pg_advisory_xact_lock key, so two app instances never seed at the same time.</summary>
     public const long LockKey = 0x64617777_6C697665; // "dawwlive"
     public const string SellerEmailDomain = "sellers.dawwerli.test";
@@ -119,11 +119,12 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
         if (real > 0)
         {
             log.LogWarning("Live seed: no marker {Marker}, but {Real} real (non-seeded) users exist, so NOTHING is deleted. " +
-                "Adding sizes to the seeded products instead. To replace everything anyway run: seed-live --wipe --include-real-users --confirm", MarkerName, real);
+                "Updating the seeded products (sizes, wall kinds, wall products) instead. To replace everything anyway run: seed-live --wipe --include-real-users --confirm", MarkerName, real);
             var backfill = await BackfillDimensionsAsync(ct);
             var moved = await BackfillCategoriesAsync(ct);
-            log.LogWarning("Live seed: sized {Count} and recategorized {Moved} seeded products in {Seconds:F1}s. Remove Seed__Live from the server environment.",
-                backfill.Created.Sum(kv => kv.Value), moved.Created.Sum(kv => kv.Value), (backfill.Elapsed + moved.Elapsed).TotalSeconds);
+            log.LogWarning("Live seed: backfilled seeded products in {Seconds:F1}s: {Counts}. Remove Seed__Live from the server environment.",
+                (backfill.Elapsed + moved.Elapsed).TotalSeconds,
+                string.Join(", ", backfill.Created.Concat(moved.Created).Select(kv => $"{kv.Key}={kv.Value}")));
             return backfill with { Created = [.. backfill.Created, .. moved.Created], Elapsed = backfill.Elapsed + moved.Elapsed };
         }
         log.LogWarning("Live seed: Seed:Live=true and no marker {Marker}. DELETING all seeded data and seeding live data now.", MarkerName);
@@ -238,9 +239,17 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
     }
 
     /// <summary>
-    /// Gives every seeded product that has no size yet the real-world size of its template (cm), without deleting or
-    /// re-creating anything: ids, orders, reviews and favourites stay. Only products on pages owned by seeded page users
-    /// are touched. Runs under the advisory lock and writes the current marker, so a later Seed__Live=true start skips.
+    /// Brings the seeded products up to the current seed without deleting or re-creating anything (ids, orders, reviews
+    /// and favourites stay). Only pages owned by seeded page users are touched:
+    /// <list type="bullet">
+    /// <item>products without a size get the real-world size of their template (cm);</item>
+    /// <item>products of a wall template (TV, mirror, art, frame, rug) get the wall kind, the size of their variant and the
+    /// variant group, even when they already had a size;</item>
+    /// <item>products of a non-wall template lose a wall kind they should not have;</item>
+    /// <item>pages whose category kit has wall templates get the missing wall variants, like a fresh seed lists them.</item>
+    /// </list>
+    /// Idempotent: a second run changes nothing. Runs under the advisory lock and writes the current marker, so a later
+    /// Seed__Live=true start skips.
     /// </summary>
     public async Task<LiveSeedReport> BackfillDimensionsAsync(CancellationToken ct = default)
     {
@@ -251,10 +260,18 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
         {
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             await db.Database.ExecuteSqlRawAsync($"SELECT pg_advisory_xact_lock({LockKey})", ct);
-            var updated = await BackfillInTransactionAsync(ct);
-            await WriteMarkerAsync(new { marker = MarkerName, backfilledAt = clock.UtcNow, backfilledProducts = updated }, ct);
+            var counts = await BackfillInTransactionAsync(ct);
+            await WriteMarkerAsync(new
+            {
+                marker = MarkerName, backfilledAt = clock.UtcNow, backfilledProducts = counts.Sized,
+                wallProductsMarked = counts.WallMarked, wallProductsAdded = counts.WallAdded, wallKindsCleared = counts.KindCleared,
+            }, ct);
             await tx.CommitAsync(ct);
-            return new LiveSeedReport(false, "dimensions backfilled", [], [new("products_sized", updated)], sw.Elapsed);
+            return new LiveSeedReport(false, "seeded products backfilled", [],
+            [
+                new(BackfillSized, counts.Sized), new(BackfillWallMarked, counts.WallMarked),
+                new(BackfillWallAdded, counts.WallAdded), new(BackfillKindCleared, counts.KindCleared),
+            ], sw.Elapsed);
         }
         finally
         {
@@ -263,36 +280,173 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
         }
     }
 
-    private async Task<int> BackfillInTransactionAsync(CancellationToken ct)
+    /// <summary>Report keys of <see cref="BackfillDimensionsAsync"/>.</summary>
+    public const string BackfillSized = "products_sized", BackfillWallMarked = "wall_products_marked",
+        BackfillWallAdded = "wall_products_added", BackfillKindCleared = "wall_kinds_cleared";
+
+    private sealed record BackfillCounts(int Sized, int WallMarked, int WallAdded, int KindCleared);
+
+    private sealed record WallTarget(decimal W, decimal H, decimal? D, WallKind Kind, string Group, string Label);
+
+    /// <summary>The wall template and variant a seeded product name belongs to ("{template} {variant}"), if any.</summary>
+    internal static (ProductSeed Seed, WallSeed Wall, int Variant)? WallVariantOf(CategoryKit kit, string name)
+    {
+        foreach (var t in kit.Products)
+        {
+            if (t.Wall is not { } w || t.Variants is null) continue;
+            for (var i = 0; i < t.Variants.Length && i < w.Sizes.Length; i++)
+                if (name == $"{t.Name} {t.Variants[i]}") return (t, w, i);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The category kit a seeded page was generated from: the kit whose templates name the most of its products (deleted
+    /// ones too), ties broken by how many of those products still sit in the kit's own category, then by kit order.
+    /// Null when no kit template matches any product.
+    /// </summary>
+    internal static CategoryKit? PageKitOf(IReadOnlyList<(string Name, string? CategorySlug)> products)
+    {
+        CategoryKit? best = null;
+        (int Names, int InCategory) bestScore = (0, 0);
+        foreach (var kit in Kits)
+        {
+            var names = 0;
+            var inCategory = 0;
+            foreach (var (name, slug) in products)
+            {
+                if (LiveSeedDimensions.TemplateOf(kit, name) is null) continue;
+                names++;
+                if (slug == kit.Slug) inCategory++;
+            }
+            if (names > bestScore.Names || (names == bestScore.Names && inCategory > bestScore.InCategory))
+            {
+                best = kit;
+                bestScore = (names, inCategory);
+            }
+        }
+        return bestScore.Names > 0 ? best : null;
+    }
+
+    private async Task<BackfillCounts> BackfillInTransactionAsync(CancellationToken ct)
     {
         var seeded = SeededPhoneHashes();
         var owners = (await db.Users.AsNoTracking().Where(u => u.Role == UserRole.Page).Select(u => new { u.Id, u.PhoneHash }).ToListAsync(ct))
             .Where(u => seeded.Contains(u.PhoneHash)).Select(u => u.Id).ToHashSet();
         var slugs = await db.Categories.AsNoTracking().ToDictionaryAsync(c => c.Id, c => c.Slug, ct);
+        var catIds = slugs.GroupBy(kv => kv.Value).ToDictionary(g => g.Key, g => g.First().Key);
         var kits = Kits.ToDictionary(k => k.Slug);
-        var rows = await (from p in db.Products.AsNoTracking()
-                          join pg in db.Pages.AsNoTracking() on p.PageId equals pg.Id
-                          where p.WidthCm == null && p.HeightCm == null && p.DepthCm == null
-                          select new { p.Id, p.Name, p.CategoryId, pg.UserId }).ToListAsync(ct);
-        var groups = rows.Where(r => owners.Contains(r.UserId))
-            .GroupBy(r =>
+        var rows = (await (from p in db.Products.AsNoTracking()
+                           join pg in db.Pages.AsNoTracking() on p.PageId equals pg.Id
+                           select new
+                           {
+                               p.Id, p.PageId, p.Name, p.CategoryId, p.WidthCm, p.HeightCm, p.DepthCm, p.WallKind, p.VariantGroup, p.VariantLabel,
+                               p.ImageKeys, p.DeletedAt, pg.UserId, PageCreatedAt = pg.CreatedAt,
+                           }).ToListAsync(ct))
+            .Where(r => owners.Contains(r.UserId)).ToList();
+        CategoryKit? KitOf(int? categoryId) => categoryId is { } cid && slugs.TryGetValue(cid, out var sl) && kits.TryGetValue(sl, out var k) ? k : null;
+        // The page's kit comes from its product names, not from their categories: the category backfill moves some
+        // products to another category (a furniture shop's canvas art to «home», a phone shop's TV to electronics).
+        var pageKit = rows.GroupBy(r => r.PageId).ToDictionary(g => g.Key, g => PageKitOf(g.Select(r => (r.Name, KitOf(r.CategoryId)?.Slug)).ToList()));
+
+        var sizeTargets = new List<(Guid Id, LiveSeedDimensions.Size Size)>();
+        var wallTargets = new List<(Guid Id, WallTarget Target)>();
+        var clearKind = new List<Guid>();
+        foreach (var r in rows)
+        {
+            var kit = pageKit[r.PageId] ?? KitOf(r.CategoryId);
+            if (kit is not null && WallVariantOf(kit, r.Name) is { } wv)
             {
-                var slug = r.CategoryId is { } cid && slugs.TryGetValue(cid, out var sl) ? sl : "";
-                var template = (kits.TryGetValue(slug, out var kit) ? LiveSeedDimensions.TemplateOf(kit, r.Name) : null) ?? LiveSeedCategories.AnyTemplateOf(r.Name);
-                return LiveSeedDimensions.For(template, slug);
-            }, r => r.Id);
-        var total = 0;
-        foreach (var g in groups)
+                var (seed, w, i) = wv;
+                var (width, height, depth) = w.Sizes[i];
+                var target = new WallTarget(width, height, depth, w.Kind, w.Group, seed.Variants![i]);
+                if (r.WidthCm != width || r.HeightCm != height || r.DepthCm != depth || r.WallKind != w.Kind
+                    || r.VariantGroup != target.Group || r.VariantLabel != target.Label)
+                    wallTargets.Add((r.Id, target));
+                continue;
+            }
+            var template = (kit is null ? null : LiveSeedDimensions.TemplateOf(kit, r.Name)) ?? LiveSeedCategories.AnyTemplateOf(r.Name);
+            if (r.WidthCm == null && r.HeightCm == null && r.DepthCm == null)
+                sizeTargets.Add((r.Id, LiveSeedDimensions.For(template, r.CategoryId is { } c && slugs.TryGetValue(c, out var s) ? s : "")));
+            // A seeded non-wall product (sofa, phone, ...) is never wall-placeable.
+            if (template is { Wall: null } && r.WallKind != null) clearKind.Add(r.Id);
+        }
+
+        var sized = 0;
+        foreach (var g in sizeTargets.GroupBy(x => x.Size, x => x.Id))
         {
             var (w, h, d) = (g.Key.W, g.Key.H, g.Key.D);
             foreach (var chunk in g.Chunk(5000))
             {
                 var ids = chunk.ToList();
-                total += await db.Products.Where(p => ids.Contains(p.Id))
+                sized += await db.Products.Where(p => ids.Contains(p.Id))
                     .ExecuteUpdateAsync(s => s.SetProperty(p => p.WidthCm, w).SetProperty(p => p.HeightCm, h).SetProperty(p => p.DepthCm, d), ct);
             }
         }
-        return total;
+        var marked = 0;
+        foreach (var g in wallTargets.GroupBy(x => x.Target, x => x.Id))
+        {
+            var t = g.Key;
+            WallKind? kind = t.Kind;
+            foreach (var chunk in g.Chunk(5000))
+            {
+                var ids = chunk.ToList();
+                marked += await db.Products.Where(p => ids.Contains(p.Id)).ExecuteUpdateAsync(s => s
+                    .SetProperty(p => p.WidthCm, t.W).SetProperty(p => p.HeightCm, t.H).SetProperty(p => p.DepthCm, t.D)
+                    .SetProperty(p => p.WallKind, kind).SetProperty(p => p.VariantGroup, t.Group).SetProperty(p => p.VariantLabel, t.Label), ct);
+            }
+        }
+        var cleared = 0;
+        foreach (var chunk in clearKind.Chunk(5000))
+        {
+            var ids = chunk.ToList();
+            cleared += await db.Products.Where(p => ids.Contains(p.Id)).ExecuteUpdateAsync(s => s.SetProperty(p => p.WallKind, (WallKind?)null), ct);
+        }
+
+        // Pages seeded before the wall templates existed have no TVs, mirrors, art, frames or rugs: add the full groups.
+        var added = new List<Product>();
+        var now = clock.UtcNow;
+        foreach (var page in rows.GroupBy(r => r.PageId))
+        {
+            if (page.All(r => r.DeletedAt != null)) continue;
+            // Names of deleted products count too, so a wall product a seller removed is not brought back.
+            var kit = pageKit[page.Key];
+            if (kit is null || !catIds.TryGetValue(kit.Slug, out var kitCategoryId)) continue;
+            var names = page.Select(r => r.Name).ToHashSet(StringComparer.Ordinal);
+            var rng = new Random(BitConverter.ToInt32(page.Key.ToByteArray(), 0));
+            var created = page.Max(r => r.PageCreatedAt);
+            foreach (var t in kit.Products.Where(t => t.Wall is not null && t.Variants is not null))
+            {
+                var w = t.Wall!;
+                var images = page.FirstOrDefault(r => r.VariantGroup == w.Group && r.ImageKeys.Length > 0)?.ImageKeys
+                    ?? LiveSeedImages.ByTag[t.Tag].OrderBy(_ => rng.Next()).Take(rng.Next(1, 4)).ToArray();
+                for (var i = 0; i < t.Variants!.Length && i < w.Sizes.Length; i++)
+                {
+                    var name = $"{t.Name} {t.Variants[i]}";
+                    if (names.Contains(name)) continue;
+                    var (width, height, depth) = w.Sizes[i];
+                    var step = w.Sizes.Length > 1 ? (double)i / (w.Sizes.Length - 1) : 0;
+                    var from = created > now.AddDays(-30) ? created : now.AddDays(-30);
+                    added.Add(new Product
+                    {
+                        Id = Guid.NewGuid(), PageId = page.Key, Name = name,
+                        CategoryId = catIds.TryGetValue(LiveSeedCategories.SlugOf(t, kit.Slug), out var tc) ? tc : kitCategoryId,
+                        Description = $"{t.Description}\nالحالة: جديد بالكارتون.\nالسعر بالدينار العراقي، التوصيل متوفر.",
+                        Price = Run.RoundPrice(t.MinPrice + (t.MaxPrice - t.MinPrice) * step * (0.95 + rng.NextDouble() * 0.05)),
+                        ImageKeys = images, Stock = rng.Next(1, 26), Active = true,
+                        CreatedAt = from.AddSeconds(rng.NextDouble() * Math.Max(0, (now - from).TotalSeconds)),
+                        WidthCm = width, HeightCm = height, DepthCm = depth, WallKind = w.Kind, VariantGroup = w.Group, VariantLabel = t.Variants[i],
+                    });
+                }
+            }
+        }
+        foreach (var chunk in added.Chunk(1000))
+        {
+            db.Products.AddRange(chunk);
+            await db.SaveChangesAsync(ct);
+            db.ChangeTracker.Clear();
+        }
+        return new BackfillCounts(sized, marked, added.Count, cleared);
     }
 
     /// <summary>
@@ -333,7 +487,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
         var moves = rows.Where(r => owners.Contains(r.UserId))
             .Select(r =>
             {
-                var target = LiveSeedCategories.AnyTemplateOf(r.Name) is { } t && LiveSeedCategories.ByTemplate.TryGetValue(t.Name, out var slug)
+                var target = LiveSeedCategories.AnyTemplateOf(r.Name) is { } t && LiveSeedCategories.FixedSlugOf(t) is { } slug
                     && ids.TryGetValue(slug, out var id) ? id : r.CategoryId;
                 return (r.Id, r.CategoryId, Target: target);
             })
@@ -513,7 +667,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             return Places[0];
         }
 
-        private static long RoundPrice(double p) => p switch
+        internal static long RoundPrice(double p) => p switch
         {
             < 20_000 => (long)Math.Round(p / 250) * 250,
             < 100_000 => (long)Math.Round(p / 500) * 500,
@@ -686,6 +840,10 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                     var extra = Pick(RelatedCategories[kit.Slug]);
                     pageCats.Add(new PageCategory { PageId = page.Id, CategoryId = cat[extra] });
                 }
+                // A kit that sells a product from another category (phone shops with TVs) lists that category on the page too.
+                foreach (var cross in kit.Products.Select(t => t.Category).OfType<string>().Where(c => c != kit.Slug).Distinct())
+                    if (!pageCats.Any(c => c.PageId == page.Id && c.CategoryId == cat[cross]))
+                        pageCats.Add(new PageCategory { PageId = page.Id, CategoryId = cat[cross] });
                 pageGovs.Add(new PageGovernorate { PageId = page.Id, GovernorateId = govId });
                 if ((isShowcase || Chance(0.25)) && neighbours.TryGetValue(govId, out var near) && near.Length > 0)
                     foreach (var n in Sample(near, isShowcase ? 2 : Int(1, 2)))

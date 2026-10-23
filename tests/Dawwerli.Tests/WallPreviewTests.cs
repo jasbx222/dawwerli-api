@@ -148,6 +148,7 @@ public class WallPreviewTests(ApiFactory factory)
         { "variantGroup", Body(variantGroup: "bad key!", variantLabel: "x") },
         { "variantLabel", Body(variantGroup: "ok-key") },
         { "variantLabel", Body(variantGroup: "ok-key", variantLabel: new string('x', 31)) },
+        { "variantLabel", Body(variantLabel: "55 بوصة") }, // a size label without a group would be silently dropped
     };
 
     [Theory]
@@ -216,6 +217,31 @@ public class WallPreviewTests(ApiFactory factory)
         (await c.SendAsync(Req("POST", $"/api/admin/v1/products/{small}/unhide", admin))).EnsureSuccessStatusCode();
         (await c.SendAsync(Req("DELETE", $"/api/seller/v1/products/{small}", s1.Token))).EnsureSuccessStatusCode();
         Assert.Empty(VariantIds(await DetailsAsync(c, mid)));
+    }
+
+    [Fact]
+    public async Task A_variant_group_never_mixes_wall_kinds()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s = await SellerAsync(c, admin);
+        var group = $"g-{Guid.NewGuid():N}"[..20];
+        var tv = await CreateAsync(c, s.Token, Body("شاشة 55", 480_000, 123.1m, 70.9m, 5.9m, "tv", group, "55 بوصة"));
+
+        // A mirror (or a product with no wall kind) can't join the TV group, on create or on edit.
+        var r = await c.SendAsync(Req("POST", "/api/seller/v1/products", s.Token, Body("مراية", 60_000, 60m, 60m, null, "mirror", group, "60 سم")));
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        var err = await r.ReadAsync();
+        Assert.Equal("product.variant_kind", err.GetProperty("code").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.SendAsync(Req("POST", "/api/seller/v1/products", s.Token, Body("بلا قياس", 10_000, variantGroup: group, variantLabel: "x")))).StatusCode);
+        var mirror = await CreateAsync(c, s.Token, Body("مراية", 60_000, 60m, 60m, null, "mirror"));
+        Assert.Equal(HttpStatusCode.BadRequest, (await c.SendAsync(Req("PUT", $"/api/seller/v1/products/{mirror}", s.Token, Body("مراية", 60_000, 60m, 60m, null, "mirror", group, "60 سم")))).StatusCode);
+        // Same kind joins fine, and the only member of a group may still change its own kind.
+        await CreateAsync(c, s.Token, Body("شاشة 65", 750_000, 145.1m, 83m, 5.9m, "tv", group, "65 بوصة"));
+        var solo = $"s-{Guid.NewGuid():N}"[..20];
+        var one = await CreateAsync(c, s.Token, Body("لوحة", 30_000, 50m, 70m, null, "art", solo, "50×70"));
+        (await c.SendAsync(Req("PUT", $"/api/seller/v1/products/{one}", s.Token, Body("لوحة", 30_000, 50m, 70m, null, "frame", solo, "50×70")))).EnsureSuccessStatusCode();
+        Assert.Equal(2, VariantIds(await DetailsAsync(c, tv)).Count);
     }
 
     [Fact]

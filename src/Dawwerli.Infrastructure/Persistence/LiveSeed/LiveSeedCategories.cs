@@ -49,8 +49,14 @@ internal static class LiveSeedCategories
     };
 
     /// <summary>Category slug for a product generated from <paramref name="template"/> on a page of kit <paramref name="kitSlug"/>.</summary>
-    public static string SlugOf(LiveSeedData.ProductSeed template, string kitSlug) =>
-        ByTemplate.TryGetValue(template.Name, out var slug) ? slug : kitSlug;
+    public static string SlugOf(LiveSeedData.ProductSeed template, string kitSlug) => FixedSlugOf(template) ?? kitSlug;
+
+    /// <summary>
+    /// The category a template always belongs to, whatever kit lists it: the template's own
+    /// <see cref="LiveSeedData.ProductSeed.Category"/>, else <see cref="ByTemplate"/>; null when it follows the kit.
+    /// </summary>
+    public static string? FixedSlugOf(LiveSeedData.ProductSeed template) =>
+        template.Category ?? (ByTemplate.TryGetValue(template.Name, out var slug) ? slug : null);
 
     /// <summary>
     /// The template of a seeded product by name alone, across every kit (longest match wins), for rows whose category no
