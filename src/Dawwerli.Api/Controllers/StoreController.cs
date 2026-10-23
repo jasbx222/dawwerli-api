@@ -65,7 +65,8 @@ public sealed class StoreController(StoreService store, DiscoveryService discove
     [HttpDelete("cart/items/{productId:guid}"), HttpDelete("store/cart/items/{productId:guid}")] public async Task<IActionResult> Remove(Guid productId, CancellationToken ct) => Ok(await store.RemoveAsync(productId, ct));
     [HttpDelete("cart"), HttpDelete("store/cart")] public async Task<IActionResult> Clear(CancellationToken ct) { await store.ClearAsync(ct); return NoContent(); }
 
-    [HttpPost("store/checkout"), Idempotent] public async Task<IActionResult> Checkout(CheckoutDto dto, CancellationToken ct) => From(await store.CheckoutAsync(dto, ct));
+    /// <summary>Place the cart as an order. POST store/orders is the same action (the customer app posts there).</summary>
+    [HttpPost("store/checkout"), HttpPost("store/orders"), Idempotent] public async Task<IActionResult> Checkout(CheckoutDto dto, CancellationToken ct) => From(await store.CheckoutAsync(dto, ct));
     [HttpGet("store/orders")]
     public async Task<IActionResult> Orders([FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) => Ok(await store.MyOrdersAsync(page, pageSize, ct));
     [HttpGet("store/orders/{id:guid}")] public async Task<IActionResult> Order(Guid id, CancellationToken ct) => From(await store.MyOrderAsync(id, ct));

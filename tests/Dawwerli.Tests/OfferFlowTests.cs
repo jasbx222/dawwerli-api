@@ -76,6 +76,52 @@ public class OfferFlowTests(ApiFactory factory)
         Assert.Equal(a, b);
     }
 
+    private static HttpRequestMessage Get(string url, string token)
+    {
+        var m = new HttpRequestMessage(HttpMethod.Get, url);
+        m.Headers.Authorization = new("Bearer", token);
+        return m;
+    }
+
+    private static async Task<string> UploadAsync(HttpClient c, string token, string fileName, byte[] bytes)
+    {
+        var form = new MultipartFormDataContent { { new ByteArrayContent(bytes), "file", fileName }, { new StringContent("requests"), "kind" } };
+        var m = new HttpRequestMessage(HttpMethod.Post, "/api/v1/media") { Content = form };
+        m.Headers.Authorization = new("Bearer", token);
+        var r = await c.SendAsync(m);
+        r.EnsureSuccessStatusCode();
+        return (await r.ReadAsync()).GetProperty("key").GetString()!;
+    }
+
+    /// <summary>The customer app's post flow: upload, then POST /requests with its own condition codes (brandNew is the default).</summary>
+    [Theory]
+    [InlineData("photo", "brandNew")]
+    [InlineData("photo", "used")]
+    [InlineData("text", "any")]
+    [InlineData("voice", "brandNew")]
+    public async Task App_post_request_body_is_accepted(string mode, string condition)
+    {
+        var c = await factory.ClientAsync();
+        var customer = await Api.CustomerAsync(c);
+        string? key = mode switch
+        {
+            "photo" => await UploadAsync(c, customer, "image_picker_1.jpg", [0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, (byte)'J', (byte)'F', (byte)'I', (byte)'F', 0]),
+            "voice" => await UploadAsync(c, customer, "voice_1.m4a", [0, 0, 0, 0x20, (byte)'f', (byte)'t', (byte)'y', (byte)'p', (byte)'M', (byte)'4', (byte)'A']),
+            _ => null,
+        };
+        // Exact body of ApiPostRepository.publish: nulls are sent, not omitted.
+        var r = await c.SendAsync(Api.Post("/api/v1/requests", new
+        {
+            mode, mediaKey = key, description = "اريد كريم ترطيب للوجه نوع جيد للبشرة الجافة ويكون اصلي ومختوم",
+            voiceSeconds = mode == "voice" ? 12 : (int?)null, categoryId = Care,
+            size = (string?)null, color = (string?)null, condition, maxPrice = 25000, governorateId = 1, readyToBuy = true,
+        }, customer));
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var id = (await r.ReadAsync()).GetProperty("id").GetString();
+        var mine = await (await c.SendAsync(Get("/api/v1/requests/mine", customer))).ReadAsync();
+        Assert.Contains(mine.EnumerateArray(), x => x.GetProperty("id").GetString() == id);
+    }
+
     [Fact]
     public async Task Rejects_request_with_contact_info_and_banned_item()
     {
