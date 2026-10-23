@@ -41,10 +41,13 @@ public sealed class Seeder(AppDbContext db, IConfiguration config, IStorage stor
             db.GovernorateAdjacency.AddRange(pairs.Select(p => new GovernorateAdjacency { GovernorateId = p.Item1, NeighborId = p.Item2 }));
         }
 
-        if (!await db.Categories.AnyAsync(ct))
+        // Categories are matched by slug: a fresh database gets the full catalog, an existing one only gets the slugs it is
+        // missing (appended after the current sort order). Existing rows are never touched, so admin edits are kept.
         {
-            var order = 0;
-            foreach (var c in seed.Categories)
+            var existing = await db.Categories.Select(c => new { c.Slug, c.SortOrder }).ToListAsync(ct);
+            var known = existing.Select(c => c.Slug).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var order = existing.Count == 0 ? 0 : existing.Max(c => c.SortOrder) + 1;
+            foreach (var c in seed.Categories.Where(c => !known.Contains(c.Slug)))
             {
                 await using var img = File.OpenRead(Path.Combine(dir, "media", c.Image));
                 var key = await storage.SaveAsync(img, Path.GetExtension(c.Image), "categories", ct);

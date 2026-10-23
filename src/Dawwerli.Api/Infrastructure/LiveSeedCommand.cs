@@ -23,16 +23,15 @@ public static class LiveSeedCommand
         ["--customers"] = (o, v) => o.Customers = v,
         ["--offers"] = (o, v) => o.Offers = v,
         ["--store-orders"] = (o, v) => o.StoreOrders = v,
-        ["--banners"] = (o, v) => o.Banners = v,
-        ["--featured-ads"] = (o, v) => o.FeaturedAds = v,
+        ["--ads"] = (o, v) => o.Ads = v,
         ["--featured-pages"] = (o, v) => o.FeaturedPages = v,
         ["--history-days"] = (o, v) => o.HistoryDays = v,
     };
 
     private const string Usage = """
         Usage: dotnet Dawwerli.Api.dll seed-live [--wipe] [--confirm] [--dry-run] [--seed 42]
-                 [--pages 500] [--product-pages 100] [--products-min 10] [--products-max 20] [--customers 50]
-                 [--offers 50] [--store-orders 90] [--banners 5] [--featured-ads 4] [--featured-pages 8] [--history-days 180]
+                 [--pages 500] [--product-pages 500] [--products-min 50] [--products-max 50] [--customers 50]
+                 [--offers 50] [--store-orders 90] [--ads 50] [--featured-pages 8] [--history-days 180]
           --dry-run  read-only: print the target database, current counts and the plan
           --wipe     delete all non-admin data first (admins, settings, catalog and audit log are kept)
           --confirm  required for anything that writes
@@ -92,6 +91,7 @@ public static class LiveSeedCommand
         foreach (var (table, rows) in report.Wiped) Console.WriteLine($"  wiped {table,-24} {rows,7}");
         foreach (var (table, rows) in report.Created) Console.WriteLine($"  created {table,-22} {rows,7}");
         Console.WriteLine($"Done in {report.Elapsed.TotalSeconds:F1}s. Marker {LiveDataSeeder.MarkerName} written.");
+        if (report.Showcase is not null) Console.WriteLine($"Showcase page: {report.Showcase}");
         return 0;
     }
 }

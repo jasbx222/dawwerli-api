@@ -125,5 +125,148 @@ internal static class LiveSeedImages
             "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f7/Clothing_store_interior_Son_Moro_Cala_Millor.jpg/960px-Clothing_store_interior_Son_Moro_Cala_Millor.jpg",
             "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9e/Mobile_phone_shop_in_South_Korea_2021_%28inside%29.jpg/960px-Mobile_phone_shop_in_South_Korea_2021_%28inside%29.jpg",
         ],
+        ["bed"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Bedroom_sadabad.jpg/960px-Bedroom_sadabad.jpg",
+        ],
+        ["chair"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c0/HK_Ikea_furniture_wooden_chairs_seats_August_2024_003.jpg/960px-HK_Ikea_furniture_wooden_chairs_seats_August_2024_003.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/9/93/HK_Ikea_furniture_wooden_chairs_seats_August_2024_002.jpg/960px-HK_Ikea_furniture_wooden_chairs_seats_August_2024_002.jpg",
+        ],
+        ["wardrobe"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Wardrobe_MET_DP235302.jpg/960px-Wardrobe_MET_DP235302.jpg",
+        ],
+        ["microwave"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/1/12/Microwave_oven_flashon.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f9/California_Kitchen_Microwave_Oven.jpg/960px-California_Kitchen_Microwave_Oven.jpg",
+        ],
+        ["vacuum"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Hitachi_CV-HG5_20130711.jpg/960px-Hitachi_CV-HG5_20130711.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/6/62/Vysava%C4%8D_Omega_1060.jpg",
+        ],
+        ["blender"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6d/Old_blender_on_shelf_in_New_Orleans_kitchen.jpg/960px-Old_blender_on_shelf_in_New_Orleans_kitchen.jpg",
+        ],
+        ["gamepad"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/7/76/Nintendo-Switch-Console-Docked-wJoyConRB.jpg/960px-Nintendo-Switch-Console-Docked-wJoyConRB.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4e/Nintendo_Switch_2_in_Docking_Console.jpg/960px-Nintendo_Switch_2_in_Docking_Console.jpg",
+        ],
+        ["gamingheadset"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/RGB_gaming_headset_on_desk_with_ambient_lighting.jpg/960px-RGB_gaming_headset_on_desk_with_ambient_lighting.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/7/78/Gaming_computers_%281%29.jpg/960px-Gaming_computers_%281%29.jpg",
+        ],
+        ["tire"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/1/14/Car_tires.jpg/960px-Car_tires.jpg",
+        ],
+        ["carbattery"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4c/Car_battery.jpg/960px-Car_battery.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/0/04/Batterie_TUNDRA_EFB.jpg",
+        ],
+        ["dashcam"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Dashcams_P1210466.JPG/960px-Dashcams_P1210466.JPG",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Car_Dashcam.jpg/960px-Car_Dashcam.jpg",
+        ],
+        ["carseat"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/7/70/Colorful_bamboo_car_seat_cushions.jpg/960px-Colorful_bamboo_car_seat_cushions.jpg",
+        ],
+        ["lego"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/Pile_of_light_gray_LEGO_bricks_at_a_LEGO_store.jpg/960px-Pile_of_light_gray_LEGO_bricks_at_a_LEGO_store.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/Lego_bricks.jpg/960px-Lego_bricks.jpg",
+        ],
+        ["stroller"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/9/99/Baby_pram_stroller_parking_foyer_Silkeborg_Library_Denmark_02.jpg/960px-Baby_pram_stroller_parking_foyer_Silkeborg_Library_Denmark_02.jpg",
+        ],
+        ["toycar"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c3/Giordani_toy_car_in_Fisogni_Museum.jpg/960px-Giordani_toy_car_in_Fisogni_Museum.jpg",
+        ],
+        ["football"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Just_a_soccer_ball_%2834782492153%29.jpg/960px-Just_a_soccer_ball_%2834782492153%29.jpg",
+        ],
+        ["dumbbell"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/Aluminium_Dumbbell.jpg/960px-Aluminium_Dumbbell.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Young_man_lifting_dumbbell_weight_for_exercise_in_fitness_gym.jpg/960px-Young_man_lifting_dumbbell_weight_for_exercise_in_fitness_gym.jpg",
+        ],
+        ["bicycle"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/1/19/Cube%2C_Cyclingworld_Europe_2024%2C_Meerbusch_%28P1180003%29.jpg/960px-Cube%2C_Cyclingworld_Europe_2024%2C_Meerbusch_%28P1180003%29.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9e/Stevens%2C_Cyclingworld_Europe_2024%2C_Meerbusch_%28P1170852%29.jpg/960px-Stevens%2C_Cyclingworld_Europe_2024%2C_Meerbusch_%28P1170852%29.jpg",
+        ],
+        ["treadmill"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/Treadmill_from_Viking_Sport%2C_front.jpg/960px-Treadmill_from_Viking_Sport%2C_front.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Exercise_Treadmill_Convey_Motion.jpg/960px-Exercise_Treadmill_Convey_Motion.jpg",
+        ],
+        ["books"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Stack_of_Books_for_decor.jpg/960px-Stack_of_Books_for_decor.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Stack_of_multicolored_books_on_a_table.jpg/960px-Stack_of_multicolored_books_on_a_table.jpg",
+        ],
+        ["stationery"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e2/Emerging_professions-_stationery_store_%288347831015%29.jpg/960px-Emerging_professions-_stationery_store_%288347831015%29.jpg",
+        ],
+        ["nailpolish"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/3/37/Silver_nail_polish_bottles..jpg/960px-Silver_nail_polish_bottles..jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/Nail_Polish_bottles_%282%29.jpg/960px-Nail_Polish_bottles_%282%29.jpg",
+        ],
+        ["hairdryer"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1f/HITACHI_HAIR_DRYER_HD-1650.jpg/960px-HITACHI_HAIR_DRYER_HD-1650.jpg",
+        ],
+        ["eyeshadow"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/Eyeshadow_Palette_%26_Eyeshadow_Brushes_-_50922168141.jpg/960px-Eyeshadow_Palette_%26_Eyeshadow_Brushes_-_50922168141.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Be_a_natural_Eyeshadow_nude_palette_%28HEMA%29%2C_Hillegersberg%2C_Rotterdam_%282023%29_03.jpg/960px-Be_a_natural_Eyeshadow_nude_palette_%28HEMA%29%2C_Hillegersberg%2C_Rotterdam_%282023%29_03.jpg",
+        ],
+        ["vitamins"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/B_vitamin_supplement_tablets.jpg/960px-B_vitamin_supplement_tablets.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/4/42/Prenatal_vitamin_tablets.jpg/960px-Prenatal_vitamin_tablets.jpg",
+        ],
+        ["bpmonitor"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/2020_Sfigmomanometr_elektroniczny.jpg/960px-2020_Sfigmomanometr_elektroniczny.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Blood_pressure_monitoring.jpg/960px-Blood_pressure_monitoring.jpg",
+        ],
+        ["thermometer"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/2023_Elektroniczny_termometr_lekarski.jpg/960px-2023_Elektroniczny_termometr_lekarski.jpg",
+        ],
+        ["baklava"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Baklava_-_Turkish_special%2C_80-ply.JPEG/960px-Baklava_-_Turkish_special%2C_80-ply.JPEG",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Mussel_baklava_with_walnuts.jpg/960px-Mussel_baklava_with_walnuts.jpg",
+        ],
+        ["dates"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/1/15/Dates_fruit.jpg/960px-Dates_fruit.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/Bowl_of_Dates.jpg/960px-Bowl_of_Dates.jpg",
+        ],
+        ["kleicha"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Kleeja_1.JPG/960px-Kleeja_1.JPG",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Kleeja_in_Unayzah_Misukaf_-1.jpg/960px-Kleeja_in_Unayzah_Misukaf_-1.jpg",
+        ],
+        ["chocolate"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/4/45/Chocolate_box_-_Marcolini_01.jpg/960px-Chocolate_box_-_Marcolini_01.jpg",
+        ],
+        ["plant"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a6/Amaryllis_%28Hippeastrum%29_18-01-2025._%28actm.%29_04.jpg/960px-Amaryllis_%28Hippeastrum%29_18-01-2025._%28actm.%29_04.jpg",
+        ],
+        ["catfood"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e4/Kattmat-Cat_food-Katzenfutter-Nourriture_pour_chats_-_2022.jpg/960px-Kattmat-Cat_food-Katzenfutter-Nourriture_pour_chats_-_2022.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Cat_food_%28pellets_and_water%29.jpg/960px-Cat_food_%28pellets_and_water%29.jpg",
+        ],
+        ["birdcage"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/3/34/Timber_Bird_Cage_vintage.jpg/960px-Timber_Bird_Cage_vintage.jpg",
+        ],
+        ["aquarium"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/5/52/Goldfish_in_fish_tank.jpg/960px-Goldfish_in_fish_tank.jpg",
+        ],
+        ["dogleash"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Visitor_walking_happy_dog_leash_hoh_campground_camping_pets_d_archuleta_march_05_2015_%2816751947833%29.jpg/960px-Visitor_walking_happy_dog_leash_hoh_campground_camping_pets_d_archuleta_march_05_2015_%2816751947833%29.jpg",
+        ],
+        ["drill"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/7/77/Panasonic_Cordless_Drill_%26_Driver_EY1DD2%2C_Ottobrunn_%2820250410-P1046293%29.jpg/960px-Panasonic_Cordless_Drill_%26_Driver_EY1DD2%2C_Ottobrunn_%2820250410-P1046293%29.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Cordless_electric_%28screw%29_drill.jpg/960px-Cordless_electric_%28screw%29_drill.jpg",
+        ],
+        ["hammer"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Claw_hammer_2.jpg/960px-Claw_hammer_2.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/Claw_hammer-1.jpg/960px-Claw_hammer-1.jpg",
+        ],
+        ["toolbox"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/Toolbox_%2849985663631%29.jpg/960px-Toolbox_%2849985663631%29.jpg",
+        ],
+        ["screwdriver"] = [
+            "https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Precision_Screwdriver_Set_2.jpg/960px-Precision_Screwdriver_Set_2.jpg",
+            "https://upload.wikimedia.org/wikipedia/commons/4/4a/Jeweler%27s-screwdriver-set-bright.jpg",
+        ],
     };
 }

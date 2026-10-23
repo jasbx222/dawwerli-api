@@ -13,7 +13,7 @@ namespace Dawwerli.Infrastructure.Persistence.LiveSeed;
 
 /// <summary>Outcome of a live seed run.</summary>
 public sealed record LiveSeedReport(bool Skipped, string Message, IReadOnlyList<KeyValuePair<string, int>> Wiped,
-    IReadOnlyList<KeyValuePair<string, int>> Created, TimeSpan Elapsed);
+    IReadOnlyList<KeyValuePair<string, int>> Created, TimeSpan Elapsed, string? Showcase = null);
 
 /// <summary>
 /// Replaces demo data with a realistic, fictional Iraqi data set: pages, products, customers, offers, store orders,
@@ -26,10 +26,19 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
 {
     /// <summary>Settings row that records a finished live seed (business settings use id 1).</summary>
     public const int MarkerId = 9001;
-    public const string MarkerName = "live-seed-v1";
+    public const string MarkerName = "live-seed-v2";
     /// <summary>pg_advisory_xact_lock key, so two app instances never seed at the same time.</summary>
     public const long LockKey = 0x64617777_6C697665; // "dawwlive"
     public const string SellerEmailDomain = "sellers.dawwerli.test";
+    /// <summary>Page #1 is always the busiest page, so there is one known account to demo with.</summary>
+    public const string ShowcasePhone = "07900020001";
+    /// <summary>Wallet balance (IQD) every seeded page ends with; the ledger always sums to it.</summary>
+    public const long PageBalance = 25_000;
+    /// <summary>Must match the API's featured list size (PagesController.FeaturedTake).</summary>
+    private const int FeaturedListSize = 20;
+    public const string ShowcaseName = "مركز الرافدين للموبايلات";
+    public const string ShowcaseHandle = "rafidain.mobile";
+    public static string ShowcaseSellerEmail => $"{ShowcaseHandle}@{SellerEmailDomain}";
 
     private AppDbContext Db => db;
     private IPhoneProtector Phones => phones;
@@ -81,7 +90,22 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
     public static readonly string[] KeptTables =
         ["__EFMigrationsHistory", "audit_logs", "banned_keywords", "categories", "governorate_adjacency", "governorates", "settings", "users"];
 
-    public Task<bool> MarkerExistsAsync(CancellationToken ct = default) => db.Settings.AsNoTracking().AnyAsync(s => s.Id == MarkerId, ct);
+    /// <summary>
+    /// True when the marker row holds the current <see cref="MarkerName"/>. A row left by an older version (e.g. live-seed-v1)
+    /// does not count, so a server that already ran an older seed re-seeds once with Seed__Live=true.
+    /// </summary>
+    public async Task<bool> MarkerExistsAsync(CancellationToken ct = default)
+    {
+        var data = await db.Settings.AsNoTracking().Where(s => s.Id == MarkerId).Select(s => s.Data).FirstOrDefaultAsync(ct);
+        if (string.IsNullOrWhiteSpace(data)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(data);
+            return doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("marker", out var m)
+                && m.ValueKind == JsonValueKind.String && m.GetString() == MarkerName;
+        }
+        catch (JsonException) { return false; }
+    }
 
     /// <summary>Startup path (Seed:Live=true): wipe + seed with the configured defaults unless the marker is already there.</summary>
     public async Task<LiveSeedReport> RunOnStartupAsync(CancellationToken ct = default)
@@ -100,6 +124,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                 string.Join(", ", report.Wiped.Where(kv => kv.Value > 0).Select(kv => $"{kv.Key}={kv.Value}")));
             log.LogWarning("Live seed: done in {Seconds:F1}s: {Counts}. Remove Seed__Live from the server environment.",
                 report.Elapsed.TotalSeconds, string.Join(", ", report.Created.Select(kv => $"{kv.Key}={kv.Value}")));
+            if (report.Showcase is not null) log.LogWarning("Live seed: showcase page: {Showcase}", report.Showcase);
         }
         return report;
     }
@@ -127,7 +152,8 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                 return new LiveSeedReport(true, "data already present; run with --wipe to replace it", [], [], sw.Elapsed);
 
             var wiped = wipe ? await WipeAsync(ct) : [];
-            var created = await new Run(this, o).ExecuteAsync(ct);
+            var run = new Run(this, o);
+            var created = await run.ExecuteAsync(ct);
             db.Settings.Add(new SettingsRecord
             {
                 Id = MarkerId, UpdatedAt = clock.UtcNow,
@@ -136,7 +162,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             await db.SaveChangesAsync(ct);
             db.ChangeTracker.Clear();
             await tx.CommitAsync(ct);
-            return new LiveSeedReport(false, "seeded", wiped, created, sw.Elapsed);
+            return new LiveSeedReport(false, "seeded", wiped, created, sw.Elapsed, run.ShowcaseSummary);
         }
         finally
         {
@@ -165,8 +191,8 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             $"current: users(non-admin)={await db.Users.CountAsync(u => u.Role != UserRole.Admin, ct)}, admins={await db.Users.CountAsync(u => u.Role == UserRole.Admin, ct)}, " +
             $"pages={await db.Pages.CountAsync(ct)}, products={await db.Products.CountAsync(ct)}, requests={await db.Requests.CountAsync(ct)}, " +
             $"offers={await db.Offers.CountAsync(ct)}, store_orders={await db.StoreOrders.CountAsync(ct)}",
-            $"plan: pages={o.Pages} (products on first {o.ProductPages}, {o.MinProductsPerPage}-{o.MaxProductsPerPage} each), customers={o.Customers}, " +
-            $"offers={o.Offers}, store_orders≈{o.StoreOrders}, banners={o.Banners}, featured_ads={o.FeaturedAds}, featured_pages={o.FeaturedPages}, " +
+            $"plan: pages={o.Pages} (products on first {Math.Min(o.ProductPages, o.Pages)}, {o.MinProductsPerPage}-{o.MaxProductsPerPage} each), customers={o.Customers}, " +
+            $"offers={o.Offers}, store_orders≈{o.StoreOrders}, ads={o.Ads}, featured_pages={o.FeaturedPages}, " +
             $"history={o.HistoryDays} days, seed={o.RandomSeed}, seller_accounts={(string.IsNullOrEmpty(o.SellerPassword) ? "no" : "yes")}",
         };
         return string.Join(Environment.NewLine, lines);
@@ -218,6 +244,8 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
         private readonly Dictionary<Guid, List<Product>> productsOf = [];
         private readonly Dictionary<Guid, List<Courier>> couriersOf = [];
         private readonly Dictionary<Guid, ProductSeed> templateOf = [];
+        private Page? showcase;
+        public string? ShowcaseSummary { get; private set; }
 
         public async Task<List<KeyValuePair<string, int>>> ExecuteAsync(CancellationToken ct)
         {
@@ -253,6 +281,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             await InsertAsync(notes, ct);
             await InsertAsync(sellers, ct);
             await AlignTimestampsAsync(ct);
+            ShowcaseSummary = DescribeShowcase();
 
             return
             [
@@ -263,9 +292,26 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                 new("store_order_items", storeOrders.Sum(s => s.Items.Count)), new("store_order_events", storeOrders.Sum(s => s.History.Count)),
                 new("product_ratings", productRatings.Count), new("requests", requests.Count), new("request_dispatches", dispatches.Count),
                 new("offers", offers.Count), new("orders", orders.Count), new("ratings", ratings.Count), new("ledger_entries", ledger.Count),
-                new("ad_campaigns", ads.Count), new("featured_pages", pages.Count(p => p.FeaturedOrder != null)),
+                new("ad_campaigns", ads.Count), new("ad_campaigns_running", ads.Count(a => a.Status == AdStatus.Active && a.StartAt <= now && a.EndAt > now)),
+                new("sponsored_offers", offers.Count(x => x.Sponsored)), new("featured_pages", pages.Count(p => p.FeaturedOrder != null)),
                 new("notifications", notes.Count), new("seller_accounts", sellers.Count),
             ];
+        }
+
+        private string? DescribeShowcase()
+        {
+            if (showcase is null) return null;
+            var id = showcase.Id;
+            var mine = offers.Where(x => x.PageId == id).ToList();
+            var mineProducts = products.Where(x => x.PageId == id).Select(x => x.Id).ToHashSet();
+            var so = storeOrders.Where(x => x.PageId == id).ToList();
+            var email = sellers.Any(x => x.PageId == id) ? ShowcaseSellerEmail : "none (Seed__SellerPassword not set)";
+            return $"{showcase.Name} (@{showcase.InstagramHandle}), app login phone {ShowcasePhone} (OTP{(sellers.Count > 0 ? " or phone + Seed__SellerPassword" : "")}), seller portal email {email}; " +
+                $"products={products.Count(x => x.PageId == id)}, offers={mine.Count} (selected={mine.Count(x => x.Status == OfferStatus.Selected)}), " +
+                $"store_orders={so.Count} ({string.Join(", ", so.GroupBy(x => x.Status).OrderBy(g => g.Key).Select(g => $"{g.Key}={g.Count()}"))}), " +
+                $"followers={follows.Count(x => x.PageId == id)}, product_reviews={productRatings.Count(r => mineProducts.Contains(r.ProductId))}, " +
+                $"deals={showcase.Deals}, rating={showcase.Rating:F1}, featured_order={showcase.FeaturedOrder}, " +
+                $"ads={string.Join("+", ads.Where(a => a.PageId == id).Select(a => a.Slot))}, sponsored_offers={mine.Count(x => x.Sponsored)}, balance={showcase.Balance}";
         }
 
         // ---------- helpers ----------
@@ -391,7 +437,11 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
 
         /// <summary>Category mix of the page set: phones, clothes and shoes are the most common shops.</summary>
         private static readonly (string Slug, int Weight)[] KitWeights =
-            [("phones", 18), ("clothes", 18), ("shoes", 13), ("perfumes", 10), ("watches", 7), ("care", 9), ("home", 10), ("electronics", 9), ("gifts", 6)];
+            [
+                ("phones", 12), ("clothes", 11), ("shoes", 8), ("perfumes", 6), ("watches", 4), ("care", 5), ("home", 4), ("electronics", 6), ("gifts", 3),
+                ("furniture", 5), ("appliances", 5), ("gaming", 4), ("car-parts", 5), ("kids", 4), ("sports", 3), ("books", 3), ("beauty", 4),
+                ("pharmacy", 3), ("food", 4), ("flowers", 3), ("pets", 2), ("tools", 3),
+            ];
 
         private CategoryKit WeightedKit()
         {
@@ -402,17 +452,30 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
 
         private void Pages()
         {
-            var handles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var names = new HashSet<string>();
+            var handles = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ShowcaseHandle };
+            var names = new HashSet<string> { ShowcaseName };
+            // Almost every page is verified and receiving. A small realistic handful (about 2.4%: 1.2% waiting for review,
+            // 0.6% suspended, 0.6% rejected) is not; their products stay in the database but the app hides them because
+            // the storefront, search and feeds only list active pages. The showcase (page 1) is always verified.
+            var odd = Sample(Enumerable.Range(2, Math.Max(0, o.Pages - 1)).ToList(), (int)Math.Round(o.Pages * 0.024));
+            var statusOf = new Dictionary<int, PageStatus>();
+            for (var k = 0; k < odd.Count; k++) statusOf[odd[k]] = (k % 4) switch { 0 or 1 => PageStatus.Pending, 2 => PageStatus.Suspended, _ => PageStatus.Rejected };
             for (var i = 1; i <= o.Pages; i++)
             {
                 var kit = WeightedKit();
                 var place = WeightedPlace();
                 var word = Pick(ShopWords);
                 var name = $"{Pick(kit.ShopPrefixes)} {word.Ar}";
-                if (!names.Add(name)) { name = $"{name} - {place.Governorate}"; if (!names.Add(name)) { name = $"{name} {i}"; names.Add(name); } }
-                var handle = $"{word.Lat}.{kit.HandleTag}";
-                if (!handles.Add(handle))
+                var isShowcase = i == 1 && o.ProductPages > 0;
+                if (isShowcase)
+                {
+                    kit = Kits.First(k => k.Slug == "phones");
+                    place = Places.First(p => p.Governorate == "بغداد");
+                }
+                if (isShowcase) name = ShowcaseName;
+                else if (!names.Add(name)) { name = $"{name} - {place.Governorate}"; if (!names.Add(name)) { name = $"{name} {i}"; names.Add(name); } }
+                var handle = isShowcase ? ShowcaseHandle : $"{word.Lat}.{kit.HandleTag}";
+                if (!isShowcase && !handles.Add(handle))
                 {
                     var alt = $"{word.Lat}.{kit.HandleTag}.iq";
                     var n = 2;
@@ -421,7 +484,10 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                 }
 
                 var hasProducts = i <= o.ProductPages;
-                var created = hasProducts ? Between(DaysAgo(o.HistoryDays), DaysAgo(o.HistoryDays * 0.35)) : Between(DaysAgo(o.HistoryDays), DaysAgo(1));
+                var status = statusOf.GetValueOrDefault(i, PageStatus.Verified);
+                var created = isShowcase ? DaysAgo(o.HistoryDays * 0.97)
+                    : status == PageStatus.Pending ? Between(DaysAgo(6), DaysAgo(1))
+                    : hasProducts ? Between(DaysAgo(o.HistoryDays), DaysAgo(o.HistoryDays * 0.35)) : Between(DaysAgo(o.HistoryDays), DaysAgo(1));
                 var phone = $"0790002{i:D4}";
                 var govId = gov[place.Governorate];
                 var user = new User
@@ -429,18 +495,19 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                     Id = NewId(), Role = UserRole.Page, PhoneHash = owner.Phones.Hash(phone), PhoneEncrypted = owner.Phones.Encrypt(phone),
                     Name = name, GovernorateId = govId, Area = Pick(place.Areas), CreatedAt = created.AddMinutes(-Int(5, 90)),
                 };
-                var status = hasProducts ? PageStatus.Verified : rng.NextDouble() switch
-                {
-                    < 0.92 => PageStatus.Verified, < 0.96 => PageStatus.Pending, < 0.98 => PageStatus.Suspended, _ => PageStatus.Rejected,
-                };
                 var page = new Page
                 {
                     Id = NewId(), UserId = user.Id, Name = name, InstagramHandle = handle, Bio = Pick(kit.Bios), ImageKey = Image(Pick(kit.AvatarTags)),
-                    Status = status, BioCode = $"DW{Int(100000, 999999)}", Receiving = status == PageStatus.Verified && Chance(0.95),
+                    Status = status, BioCode = $"DW{Int(100000, 999999)}", Receiving = status == PageStatus.Verified,
                     CreatedAt = created,
                     RejectReason = status == PageStatus.Rejected ? "رابط الانستغرام ما يطابق اسم الصفحة" : null,
                     SuspendedUntil = status == PageStatus.Suspended ? now.AddDays(Int(2, 10)) : null,
                 };
+                if (isShowcase)
+                {
+                    page.Bio = "موبايلات جديدة ومستعملة نظيفة مع الضمان، وأجهزة وإكسسوارات. توصيل لكل بغداد والمحافظات القريبة";
+                    showcase = page;
+                }
                 users.Add(user);
                 pages.Add(page);
                 ownerOf[page.Id] = user;
@@ -448,14 +515,15 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                 placeOf[page.Id] = place;
 
                 pageCats.Add(new PageCategory { PageId = page.Id, CategoryId = cat[kit.Slug] });
-                if (Chance(0.3))
+                if (isShowcase) pageCats.Add(new PageCategory { PageId = page.Id, CategoryId = cat["electronics"] });
+                else if (Chance(0.3))
                 {
                     var extra = Pick(RelatedCategories[kit.Slug]);
                     pageCats.Add(new PageCategory { PageId = page.Id, CategoryId = cat[extra] });
                 }
                 pageGovs.Add(new PageGovernorate { PageId = page.Id, GovernorateId = govId });
-                if (Chance(0.25) && neighbours.TryGetValue(govId, out var near) && near.Length > 0)
-                    foreach (var n in Sample(near, Int(1, 2)))
+                if ((isShowcase || Chance(0.25)) && neighbours.TryGetValue(govId, out var near) && near.Length > 0)
+                    foreach (var n in Sample(near, isShowcase ? 2 : Int(1, 2)))
                         pageGovs.Add(new PageGovernorate { PageId = page.Id, GovernorateId = n });
             }
         }
@@ -468,7 +536,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             foreach (var page in ProductPages)
             {
                 var list = new List<Courier>();
-                for (var k = Int(1, 2); k > 0; k--)
+                for (var k = page == showcase ? 2 : Int(1, 2); k > 0; k--)
                     list.Add(new Courier
                     {
                         Id = NewId(), PageId = page.Id, Name = $"{Pick(MaleNames)} {Pick(FamilyNames)}", Phone = $"0790003{n++:D4}",
@@ -479,20 +547,31 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             }
         }
 
-        /// <summary>Extra spec lines for templates without variants, so a page can list 10–20 distinct items.</summary>
+        /// <summary>Extra spec lines appended to the templates until a page can list the wanted number of distinct items.</summary>
         private static readonly Dictionary<string, string[]> FallbackVariants = new()
         {
-            ["watches"] = ["فضي", "ذهبي", "أسود"], ["care"] = ["حجم صغير", "حجم كبير"], ["gifts"] = ["حجم وسط", "حجم كبير"],
-            ["perfumes"] = ["تستر", "نسخة هدية"], ["home"] = ["لون أبيض", "لون رصاصي"], ["electronics"] = ["أسود", "أبيض"],
-            ["phones"] = ["أسود", "أبيض"], ["shoes"] = ["أسود", "أبيض"], ["clothes"] = ["أسود", "كحلي"],
+            ["phones"] = ["أسود", "أبيض", "أزرق", "ذهبي", "بنفسجي", "أخضر"], ["shoes"] = ["أسود", "أبيض", "رمادي", "كحلي", "بني", "بيج"],
+            ["clothes"] = ["أسود", "كحلي", "أبيض", "رمادي", "بيج", "زيتي"], ["perfumes"] = ["تستر", "نسخة هدية", "50 مل", "100 مل", "200 مل", "طقم مع لوشن"],
+            ["watches"] = ["فضي", "ذهبي", "أسود", "ذهبي وردي", "سير جلد", "سير ستيل"], ["care"] = ["حجم صغير", "حجم كبير", "طقم مزدوج", "للبشرة الدهنية", "للبشرة الجافة", "عرض 2+1"],
+            ["home"] = ["لون أبيض", "لون رمادي", "لون بيج", "موديل 2025", "موديل 2026", "حجم عائلي"], ["electronics"] = ["أسود", "أبيض", "موديل 2025", "موديل 2026", "نسخة عالمية", "كفالة سنتين"],
+            ["gifts"] = ["حجم وسط", "حجم كبير", "تغليف ذهبي", "تغليف أحمر", "مع كارت", "مع ورد"], ["furniture"] = ["لون جوزي", "لون أبيض", "لون رمادي", "لون بيج", "صناعة تركية", "صناعة محلية"],
+            ["appliances"] = ["أبيض", "فضي", "أسود", "موديل 2025", "موديل 2026", "كفالة 3 سنوات"], ["gaming"] = ["أسود", "أبيض", "نسخة أوروبية", "نسخة أمريكية", "مع لعبة", "مع يد إضافية"],
+            ["car-parts"] = ["كوري", "ياباني", "ألماني", "صيني درجة أولى", "أصلي وكالة", "تجاري"], ["kids"] = ["لون وردي", "لون أزرق", "لون أحمر", "لون أصفر", "عمر 1-3", "عمر 3-6"],
+            ["sports"] = ["أسود", "أزرق", "أحمر", "رمادي", "حجم كبير", "حجم صغير"], ["books"] = ["طبعة 2025", "طبعة 2026", "غلاف مقوى", "غلاف ورقي", "حجم جيب", "طبعة ملونة"],
+            ["beauty"] = ["درجة 01", "درجة 02", "درجة 03", "درجة 04", "حجم سفر", "طقم هدية"], ["pharmacy"] = ["عبوة 30", "عبوة 60", "عبوة 90", "حجم عائلي", "للأطفال", "للكبار"],
+            ["food"] = ["نص كيلو", "كيلو", "2 كيلو", "علبة هدية", "صينية كبيرة", "صينية وسط"], ["flowers"] = ["أحمر", "أبيض", "وردي", "أصفر", "مشكل", "بنفسجي"],
+            ["pets"] = ["حجم صغير", "حجم وسط", "حجم كبير", "للصغار", "للبالغين", "عرض قطعتين"], ["tools"] = ["بوش", "ماكيتا", "توتال", "انكو", "ستانلي", "ديوالت"],
         };
+
+        private static readonly string[] GenericVariants = ["موديل 2025", "موديل 2026", "إصدار خاص", "حجم كبير", "حجم صغير", "نسخة اقتصادية"];
 
         private void Products()
         {
             foreach (var page in ProductPages)
             {
                 var kit = kitOf[page.Id];
-                var want = Int(o.MinProductsPerPage, o.MaxProductsPerPage);
+                var want = page == showcase ? o.MaxProductsPerPage : Int(o.MinProductsPerPage, o.MaxProductsPerPage);
+                if (want == 0) { productsOf[page.Id] = []; continue; }
                 var candidates = new List<(ProductSeed Seed, string Name, bool Used)>();
                 foreach (var t in kit.Products)
                 {
@@ -500,9 +579,11 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                     else candidates.Add((t, t.Name, false));
                     if (t.CanBeUsed) candidates.Add((t, $"{t.Name} مستعمل", true));
                 }
-                if (candidates.Count < want)
-                    foreach (var t in kit.Products.Where(t => t.Variants is not { Length: > 0 }))
-                        candidates.AddRange(FallbackVariants[kit.Slug].Select(v => (t, $"{t.Name} - {v}", false)));
+                foreach (var v in FallbackVariants.GetValueOrDefault(kit.Slug, GenericVariants).Concat(GenericVariants).Distinct())
+                {
+                    if (candidates.Count >= want) break;
+                    candidates.AddRange(kit.Products.Select(t => (t, $"{t.Name} - {v}", false)));
+                }
 
                 var list = new List<Product>();
                 foreach (var (seed, name, used) in Sample(candidates, want))
@@ -513,7 +594,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                     {
                         Id = NewId(), PageId = page.Id, Name = name, Description = $"{seed.Description}\n{condition}\nالسعر بالدينار العراقي، التوصيل متوفر.",
                         Price = price, ImageKeys = Images(seed.Tag, Int(1, 3)), CategoryId = cat[kit.Slug],
-                        Stock = Chance(0.08) ? 0 : Int(1, 25), Active = Chance(0.95),
+                        Stock = page != showcase && Chance(0.08) ? 0 : Int(1, 25), Active = page == showcase || Chance(0.95),
                         CreatedAt = Between(page.CreatedAt.AddDays(1), DaysAgo(1)),
                     };
                     list.Add(p);
@@ -529,8 +610,10 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
         private void FollowsAndFavorites()
         {
             var live = LivePages;
-            var withProducts = live.Where(p => productsOf.ContainsKey(p.Id)).ToList();
-            var visible = products.Where(p => p.Visible).ToList();
+            var withProducts = live.Where(p => productsOf.TryGetValue(p.Id, out var l) && l.Count > 0).ToList();
+            var liveIds = live.Select(p => p.Id).ToHashSet();
+            var visible = products.Where(p => p.Visible && liveIds.Contains(p.PageId)).ToList();
+            var pairs = new HashSet<(Guid, Guid)>();
             foreach (var c in customers)
             {
                 var chosen = new HashSet<Guid>();
@@ -538,8 +621,11 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                 {
                     var p = Chance(0.7) && withProducts.Count > 0 ? Pick(withProducts) : Pick(live);
                     if (!chosen.Add(p.Id)) continue;
+                    pairs.Add((c.Id, p.Id));
                     follows.Add(new PageFollow { Id = NewId(), UserId = c.Id, PageId = p.Id, CreatedAt = Between(Max(c.CreatedAt, p.CreatedAt), now.AddHours(-1)) });
                 }
+                if (showcase is not null && live.Contains(showcase) && !chosen.Contains(showcase.Id) && Chance(0.45) && pairs.Add((c.Id, showcase.Id)))
+                    follows.Add(new PageFollow { Id = NewId(), UserId = c.Id, PageId = showcase.Id, CreatedAt = Between(Max(c.CreatedAt, showcase.CreatedAt), now.AddHours(-1)) });
                 var favs = new HashSet<Guid>();
                 for (var k = Int(0, 6); k > 0 && visible.Count > 0; k--)
                 {
@@ -548,6 +634,13 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                     favorites.Add(new ProductFavorite { Id = NewId(), UserId = c.Id, ProductId = pr.Id, CreatedAt = Between(Max(c.CreatedAt, pr.CreatedAt), now.AddHours(-1)) });
                 }
             }
+            // Every page that customers could ever see (verified, or suspended after trading) gets at least one follower.
+            // Pending and rejected pages were never public, so nobody follows them.
+            var followed = follows.Select(f => f.PageId).ToHashSet();
+            foreach (var p in pages.Where(p => p.Status is PageStatus.Verified or PageStatus.Suspended && !followed.Contains(p.Id)))
+                foreach (var c in Sample(customers, Int(1, 4)))
+                    if (pairs.Add((c.Id, p.Id)))
+                        follows.Add(new PageFollow { Id = NewId(), UserId = c.Id, PageId = p.Id, CreatedAt = Between(Max(c.CreatedAt, p.CreatedAt), now.AddHours(-1)) });
         }
 
         // ---------- store orders ----------
@@ -601,13 +694,24 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             var reviewed = new HashSet<(Guid, Guid)>();
             var ratingSums = new Dictionary<Guid, (int Sum, int Count)>();
 
+            // The showcase page gets a fixed share covering every status.
+            StoreOrderStatus[] showcaseMix = showcase is not null && shops.Contains(showcase)
+                ?
+                [
+                    StoreOrderStatus.Delivered, StoreOrderStatus.New, StoreOrderStatus.OutForDelivery, StoreOrderStatus.Delivered,
+                    StoreOrderStatus.Accepted, StoreOrderStatus.Delivered, StoreOrderStatus.Cancelled, StoreOrderStatus.Delivered,
+                    StoreOrderStatus.OutForDelivery, StoreOrderStatus.New, StoreOrderStatus.Delivered, StoreOrderStatus.Rejected,
+                    StoreOrderStatus.Accepted, StoreOrderStatus.Delivered,
+                ]
+                : [];
             for (var i = 0; i < o.StoreOrders; i++)
             {
-                var status = StoreStatus();
+                var forShowcase = i < showcaseMix.Length;
+                var status = forShowcase ? showcaseMix[i] : StoreStatus();
                 var customer = Pick(customers);
                 // Prefer shops that deliver to the customer's governorate.
                 var local = shops.Where(p => pageGovs.Any(g => g.PageId == p.Id && g.GovernorateId == customer.GovernorateId)).ToList();
-                var page = local.Count > 0 && Chance(0.8) ? Pick(local) : Pick(shops);
+                var page = forShowcase ? showcase! : local.Count > 0 && Chance(0.8) ? Pick(local) : Pick(shops);
                 var lines = Sample(productsOf[page.Id].Where(x => x.Visible).ToList(), Chance(0.75) ? 1 : Int(2, 3));
                 var earliest = Max(Max(customer.CreatedAt, page.CreatedAt), lines.Max(l => l.CreatedAt)).AddHours(1);
                 var t0 = status switch
@@ -665,7 +769,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                 if (so.Status != StoreOrderStatus.Delivered) continue;
                 foreach (var it in items)
                 {
-                    if (!Chance(0.6) || !reviewed.Add((customer.Id, it.ProductId))) continue;
+                    if (!Chance(forShowcase ? 0.9 : 0.6) || !reviewed.Add((customer.Id, it.ProductId))) continue;
                     var stars = rng.NextDouble() switch { < 0.55 => 5, < 0.83 => 4, < 0.93 => 3, < 0.97 => 2, _ => 1 };
                     var comment = stars >= 4 ? Pick(ProductReviews) : Pick<string>(["المنتج مو مثل الصورة", "التوصيل تأخر", "النوعية أقل من المتوقع", ""]);
                     productRatings.Add(new ProductRating
@@ -713,20 +817,27 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             if (o.Offers == 0 || live.Count == 0 || customers.Count == 0) return;
             var remaining = o.Offers;
             var deals = new Dictionary<Guid, (int Deals, int Sum, int Count)>();
+            // The showcase page bids on the first ten requests (one of every plan) and wins five of them.
+            var showcaseLive = showcase is not null && live.Contains(showcase);
+            var showcaseGovs = showcaseLive ? pageGovs.Where(g => g.PageId == showcase!.Id).Select(g => (int?)g.GovernorateId).ToHashSet() : [];
+            var nearShowcase = customers.Where(c => showcaseGovs.Contains(c.GovernorateId)).ToList();
             for (var index = 0; remaining > 0; index++)
             {
                 var plan = NextPlan(index);
-                var customer = Pick(customers);
-                var kit = Kits[rng.Next(Kits.Length)];
+                var showcaseTurn = showcaseLive && index < 10;
+                var customer = showcaseTurn && nearShowcase.Count > 0 ? Pick(nearShowcase) : Pick(customers);
+                var kit = showcaseTurn ? Kits.First(k => k.Slug == (index % 3 == 2 ? "electronics" : "phones")) : Kits[rng.Next(Kits.Length)];
                 var catId = cat[kit.Slug];
                 var govId = customer.GovernorateId!.Value;
                 var matching = live.Where(p => pageCats.Any(c => c.PageId == p.Id && c.CategoryId == catId)
                     && pageGovs.Any(g => g.PageId == p.Id && g.GovernorateId == govId)).ToList();
                 if (matching.Count == 0) matching = live.Where(p => pageCats.Any(c => c.PageId == p.Id && c.CategoryId == catId)).ToList();
+                if (showcaseTurn && !matching.Contains(showcase!)) matching.Add(showcase!);
                 if (matching.Count == 0) continue;
 
                 var want = Math.Min(remaining, plan == Plan.Expired ? Int(1, 2) : Int(1, 4));
-                var bidders = Sample(matching, want);
+                var bidders = Sample(showcaseTurn ? matching.Where(p => p != showcase).ToList() : matching, showcaseTurn ? want - 1 : want);
+                if (showcaseTurn) bidders.Insert(rng.Next(bidders.Count + 1), showcase!);
                 if (bidders.Count == 0) continue;
                 remaining -= bidders.Count;
 
@@ -792,6 +903,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
 
                 // Customer picks the cheapest offer most of the time.
                 var chosen = Chance(0.7) ? made.MinBy(x => x.Price)! : Pick(made);
+                if (showcaseTurn && index is 1 or 2 or 3 or 4 or 9) chosen = made.First(x => x.PageId == showcase!.Id);
                 chosen.Status = OfferStatus.Selected;
                 var page0 = pages.First(p => p.Id == chosen.PageId);
                 var selectedAt = Max(made.Max(x => x.CreatedAt), created).AddMinutes(Int(10, 240));
@@ -879,68 +991,328 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
 
         private readonly HashSet<Guid> advertised = [];
 
+        private sealed record AdPlan(AdSlot Slot, AdOwnerType Owner, AdStatus Status, bool Scheduled = false);
+
+        // 50 campaigns: 20 home banners (14 page, 3 brand, 3 platform), 16 featured pages, 14 sponsored offers.
+        // Mostly running; each slot also has scheduled, pending review, ended and paused or rejected ones.
+        // The lists are interleaved, so a smaller Seed__Ads still covers every slot, owner type and status early on.
+        private static readonly AdPlan[] BannerPlans =
+        [
+            new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active), new(AdSlot.HomeBanner, AdOwnerType.Brand, AdStatus.Active),
+            new(AdSlot.HomeBanner, AdOwnerType.Platform, AdStatus.Active), new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Pending),
+            new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active), new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Ended),
+            new(AdSlot.HomeBanner, AdOwnerType.Brand, AdStatus.Active), new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active, true),
+            new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.PausedBalance), new(AdSlot.HomeBanner, AdOwnerType.Platform, AdStatus.Ended),
+            new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active), new(AdSlot.HomeBanner, AdOwnerType.Brand, AdStatus.Active),
+            new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active), new(AdSlot.HomeBanner, AdOwnerType.Platform, AdStatus.Active),
+            new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active), new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active),
+            new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active), new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active),
+            new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active), new(AdSlot.HomeBanner, AdOwnerType.Page, AdStatus.Active),
+        ];
+
+        private static readonly AdPlan[] FeaturedPlans =
+        [
+            new(AdSlot.FeaturedPage, AdOwnerType.Page, AdStatus.Active), new(AdSlot.FeaturedPage, AdOwnerType.Page, AdStatus.Pending),
+            new(AdSlot.FeaturedPage, AdOwnerType.Page, AdStatus.Active), new(AdSlot.FeaturedPage, AdOwnerType.Page, AdStatus.Ended),
+            new(AdSlot.FeaturedPage, AdOwnerType.Page, AdStatus.Active, true), new(AdSlot.FeaturedPage, AdOwnerType.Page, AdStatus.Rejected),
+            new(AdSlot.FeaturedPage, AdOwnerType.Page, AdStatus.Active), new(AdSlot.FeaturedPage, AdOwnerType.Page, AdStatus.PausedSuspended),
+            .. Enumerable.Repeat(new AdPlan(AdSlot.FeaturedPage, AdOwnerType.Page, AdStatus.Active), 8),
+        ];
+
+        private static readonly AdPlan[] SponsoredPlans =
+        [
+            new(AdSlot.SponsoredOffer, AdOwnerType.Page, AdStatus.Active), new(AdSlot.SponsoredOffer, AdOwnerType.Page, AdStatus.PausedBalance),
+            new(AdSlot.SponsoredOffer, AdOwnerType.Page, AdStatus.Active), new(AdSlot.SponsoredOffer, AdOwnerType.Page, AdStatus.Pending),
+            new(AdSlot.SponsoredOffer, AdOwnerType.Page, AdStatus.Active, true), new(AdSlot.SponsoredOffer, AdOwnerType.Page, AdStatus.Ended),
+            new(AdSlot.SponsoredOffer, AdOwnerType.Page, AdStatus.Active), new(AdSlot.SponsoredOffer, AdOwnerType.Page, AdStatus.Rejected),
+            .. Enumerable.Repeat(new AdPlan(AdSlot.SponsoredOffer, AdOwnerType.Page, AdStatus.Active), 6),
+        ];
+
+        internal static IReadOnlyList<(AdSlot Slot, AdOwnerType Owner, AdStatus Status, bool Scheduled)> AdMix(int count)
+        {
+            var mixed = new List<AdPlan>();
+            for (var i = 0; mixed.Count < BannerPlans.Length + FeaturedPlans.Length + SponsoredPlans.Length; i++)
+                foreach (var list in new[] { BannerPlans, FeaturedPlans, SponsoredPlans })
+                    if (i < list.Length) mixed.Add(list[i]);
+            return Enumerable.Range(0, count).Select(i => mixed[i % mixed.Count]).Select(p => (p.Slot, p.Owner, p.Status, p.Scheduled)).ToList();
+        }
+
+        /// <summary>Fictional distributors that book national home banners (paid offline, no page wallet).</summary>
+        private static readonly (string Name, string Slug, string Headline, string Tag)[] Brands =
+        [
+            ("مجموعة دجلة للإلكترونيات", "electronics", "لابتوبات وسماعات بكفالة الوكيل — توصيل لكل المحافظات", "laptop"),
+            ("شركة النخيل للأجهزة المنزلية", "appliances", "سبلتات انفيرتر توفر بالأمبيرات — تقسيط بدون فوائد", "fridge"),
+            ("بيت العطور الشرقية", "perfumes", "تشكيلة عطور الشتاء وصلت — هدية مع كل طلب", "perfume"),
+            ("الرافدين للإطارات والبطاريات", "car-parts", "بدّل تايرات سيارتك قبل الشتاء — فحص مجاني", "tire"),
+            ("عالم الألعاب", "gaming", "أجهزة وألعاب أصلية بأسعار الجملة", "console"),
+        ];
+
+        private static readonly (string Title, string Headline)[] PlatformBanners =
+        [
+            ("دوّرلي", "اكتب شنو تريد وخلي المحلات تتنافس على أحسن سعر"),
+            ("دوّرلي", "تسوّق من متاجر موثّقة وادفع عند الاستلام"),
+            ("دوّرلي", "عروض الجمعة: آلاف المنتجات من محلات مدينتك"),
+        ];
+
+        private static readonly string[] RejectNotes =
+        [
+            "الصورة فيها نص كثير وما واضح المنتج، يرجى رفع صورة أوضح",
+            "العنوان ما يطابق محتوى الصفحة",
+            "نسبة الخصم بالإعلان ما تطابق الأسعار المعروضة",
+        ];
+
         private void FeaturedAndAds()
         {
             var shops = ProductPages.Where(p => p.IsActive(now)).OrderByDescending(p => p.Deals).ThenByDescending(p => p.Rating).ThenBy(_ => rng.Next()).ToList();
+            var hasShowcase = showcase is not null && shops.Remove(showcase);
             var order = 1;
-            foreach (var p in shops.Take(o.FeaturedPages)) p.FeaturedOrder = order++;
+            if (hasShowcase && o.FeaturedPages > 0) showcase!.FeaturedOrder = order++;
+            foreach (var p in shops.Take(o.FeaturedPages - (order - 1))) p.FeaturedOrder = order++;
+            if (o.Ads == 0) return;
 
+            // Advertisers: featured pages come from the best ranked shops (the featured list only shows the top pages of a
+            // category and governorate), sponsored offers from pages that are bidding on requests, banners from anyone.
+            var bidders = offers.GroupBy(x => x.PageId).OrderByDescending(g => g.Count(x => x.Status == OfferStatus.Active)).ThenByDescending(g => g.Count())
+                .Select(g => g.Key).ToList();
+            var bidderSet = bidders.ToHashSet();
+            var shopById = shops.ToDictionary(p => p.Id);
+            // The featured list shows the top FeaturedListSize active pages of a category + governorate by deals and rating, and
+            // only flags paid ones inside it. Featured advertisers are pages that make that cut: ranked pages, or pages in a
+            // category + governorate with few competitors.
+            var activeIds = shops.Select(p => p.Id).Append(showcase?.Id ?? Guid.Empty).ToHashSet();
+            var govsOf = pageGovs.Where(g => activeIds.Contains(g.PageId)).ToLookup(g => g.PageId, g => g.GovernorateId);
+            var crowd = pageCats.Where(c => activeIds.Contains(c.PageId)).SelectMany(c => govsOf[c.PageId].Select(g => (c.CategoryId, g)))
+                .GroupBy(x => x).ToDictionary(g => g.Key, g => g.Count());
+            int Crowd(Page p) => govsOf[p.Id].Select(g => crowd.GetValueOrDefault((cat[kitOf[p.Id].Slug], g))).DefaultIfEmpty(int.MaxValue).Min();
+            var pools = new Dictionary<AdSlot, Queue<Page>>
+            {
+                [AdSlot.FeaturedPage] = new(shops.Where(p => p.Deals > 0 || p.Rating > 0 || Crowd(p) <= FeaturedListSize)),
+                [AdSlot.SponsoredOffer] = new(bidders.Where(shopById.ContainsKey).Select(id => shopById[id]).Concat(Sample(shops.Where(p => !bidderSet.Contains(p.Id)).ToList(), shops.Count))),
+                [AdSlot.HomeBanner] = new(Sample(shops, shops.Count)),
+            };
+            var suspended = new Queue<Page>(pages.Where(p => p.Status == PageStatus.Suspended && productsOf.ContainsKey(p.Id)));
+            var usedBySlot = new Dictionary<AdSlot, HashSet<Guid>> { [AdSlot.HomeBanner] = [], [AdSlot.FeaturedPage] = [], [AdSlot.SponsoredOffer] = [] };
             var banners = LiveSeedImages.ByTag["banner"];
-            foreach (var page in Sample(shops, o.Banners))
+            int brand = 0, platform = 0, reject = 0;
+
+            Page? NextPage(AdSlot slot, AdStatus status)
             {
-                var kit = kitOf[page.Id];
-                var discount = Pick<int>([10, 15, 20, 25, 30]);
-                var start = now.AddDays(-Int(1, 10)).Date.AddHours(Int(5, 12));
-                ads.Add(new AdCampaign
+                if (hasShowcase && status == AdStatus.Active && usedBySlot[slot].Add(showcase!.Id)) return showcase;
+                if (status == AdStatus.PausedSuspended && suspended.Count > 0) return suspended.Dequeue();
+                var pool = pools[slot];
+                while (pool.Count > 0)
                 {
-                    Id = NewId(), OwnerType = AdOwnerType.Page, PageId = page.Id, Slot = AdSlot.HomeBanner, Title = page.Name,
-                    Headline = $"خصم {discount}% على {Headline(kit.Slug)}", DiscountPercent = discount,
-                    GovernorateIds = Chance(0.5) ? [] : pageGovs.Where(g => g.PageId == page.Id).Select(g => g.GovernorateId).ToArray(),
-                    CategoryIds = [cat[kit.Slug]], StartAt = start, EndAt = start.AddDays(Int(14, 30)), DailyPrice = rules.BannerDaily,
-                    LastChargedOn = now.Date, Status = AdStatus.Active, ImageKey = Pick(banners), DeepLink = $"/pages/p/{page.Id}",
-                    Impressions = Int(800, 9000), Clicks = Int(20, 400), CreatedAt = start.AddHours(-Int(2, 30)),
-                });
-                advertised.Add(page.Id);
+                    var p = pool.Dequeue();
+                    if (usedBySlot[slot].Add(p.Id)) return p;
+                }
+                var rest = shops.Where(p => !usedBySlot[slot].Contains(p.Id)).ToList();
+                if (rest.Count == 0) rest = shops;
+                if (rest.Count == 0) return null;
+                var pick = Pick(rest);
+                usedBySlot[slot].Add(pick.Id);
+                return pick;
             }
-            foreach (var page in Sample(shops.Where(p => !advertised.Contains(p.Id)).ToList(), o.FeaturedAds))
+
+            foreach (var (slot, ownerType, status, scheduled) in AdMix(o.Ads))
             {
-                var start = now.AddDays(-Int(1, 5)).Date.AddHours(Int(5, 12));
-                ads.Add(new AdCampaign
+                var page = ownerType == AdOwnerType.Page ? NextPage(slot, status) : null;
+                if (ownerType == AdOwnerType.Page && page is null) continue;
+
+                // Dates: running ads started in the last days, scheduled ones start soon, ended ones ran months ago.
+                var days = slot switch { AdSlot.FeaturedPage => 7 * Int(2, 4), AdSlot.SponsoredOffer => Int(14, 30), _ => Int(14, 30) };
+                DateTime start, created;
+                switch (status)
                 {
-                    Id = NewId(), OwnerType = AdOwnerType.Page, PageId = page.Id, Slot = AdSlot.FeaturedPage, Title = page.Name,
-                    Headline = page.Bio ?? page.Name, CategoryIds = [cat[kitOf[page.Id].Slug]], StartAt = start, EndAt = start.AddDays(7 * Int(1, 3)),
-                    DailyPrice = rules.FeaturedWeekly / 7, LastChargedOn = now.Date, Status = AdStatus.Active, DeepLink = $"/pages/p/{page.Id}",
-                    Impressions = Int(300, 4000), Clicks = Int(10, 200), CreatedAt = start.AddHours(-Int(2, 30)),
-                });
-                advertised.Add(page.Id);
+                    case AdStatus.Active when scheduled:
+                    case AdStatus.Pending:
+                        created = now.AddHours(-Int(2, 40));
+                        start = now.Date.AddDays(Int(1, 5)).AddHours(Int(5, 9));
+                        break;
+                    case AdStatus.Ended:
+                        start = now.AddDays(-Int(35, 120)).Date.AddHours(Int(5, 12));
+                        days = Math.Min(days, Int(7, 21));
+                        created = start.AddHours(-Int(2, 30));
+                        break;
+                    case AdStatus.Rejected:
+                        created = now.AddDays(-Int(2, 12)).AddHours(-Int(0, 12));
+                        start = created.Date.AddDays(1).AddHours(Int(5, 9));
+                        break;
+                    case AdStatus.PausedBalance:
+                        // Booked for longer than the 25,000 IQD balance covers, so the daily charge job paused it.
+                        days = Math.Max(days, slot == AdSlot.HomeBanner ? 10 : 20);
+                        start = now.AddDays(-Int(1, 3)).Date.AddHours(Int(5, 9));
+                        created = start.AddHours(-Int(2, 20));
+                        break;
+                    default:
+                        start = now.AddDays(-Int(1, slot == AdSlot.FeaturedPage ? 6 : 10)).Date.AddHours(Int(5, 12));
+                        created = start.AddHours(-Int(2, 30));
+                        break;
+                }
+                if (page is not null && created < page.CreatedAt.AddDays(2)) created = page.CreatedAt.AddDays(2);
+                if (start < created) start = created.AddHours(1);
+                var end = start.AddDays(days);
+                if (status == AdStatus.Active && !scheduled && end <= now.AddDays(1)) end = now.AddDays(Int(3, 10));
+
+                var dailyPrice = AdsDailyPrice(slot);
+                var ad = new AdCampaign
+                {
+                    Id = NewId(), OwnerType = ownerType, PageId = page?.Id, Slot = slot, StartAt = start, EndAt = end, DailyPrice = dailyPrice,
+                    Status = status, CreatedAt = created,
+                };
+                switch (ownerType)
+                {
+                    case AdOwnerType.Brand:
+                    {
+                        var b = Brands[brand++ % Brands.Length];
+                        var dealer = shops.Where(p => kitOf[p.Id].Slug == b.Slug).ToList();
+                        ad.Title = b.Name;
+                        ad.Headline = b.Headline;
+                        ad.DiscountPercent = Pick<int>([0, 10, 15, 20]);
+                        ad.CategoryIds = cat.TryGetValue(b.Slug, out var bc) ? [bc] : [];
+                        ad.ImageKey = LiveSeedImages.ByTag.TryGetValue(b.Tag, out var bi) ? Pick(bi) : Pick(banners);
+                        ad.DeepLink = dealer.Count > 0 ? $"/pages/p/{Pick(dealer).Id}" : null;
+                        break;
+                    }
+                    case AdOwnerType.Platform:
+                    {
+                        var (title, headline) = PlatformBanners[platform++ % PlatformBanners.Length];
+                        ad.Title = title;
+                        ad.Headline = status == AdStatus.Ended ? "عروض الصيف على دوّرلي — خصومات من محلات العراق" : headline;
+                        ad.ImageKey = Pick(banners);
+                        break;
+                    }
+                    default:
+                    {
+                        var kit = kitOf[page!.Id];
+                        var govs = pageGovs.Where(g => g.PageId == page.Id).Select(g => g.GovernorateId).ToArray();
+                        ad.Title = page.Name;
+                        ad.DeepLink = $"/pages/p/{page.Id}";
+                        ad.CategoryIds = [cat[kit.Slug]];
+                        ad.GovernorateIds = slot == AdSlot.HomeBanner && Chance(0.5) ? [] : govs;
+                        var pageProducts = productsOf.GetValueOrDefault(page.Id) ?? [];
+                        if (slot == AdSlot.HomeBanner)
+                        {
+                            ad.DiscountPercent = Pick<int>([10, 15, 20, 25, 30]);
+                            ad.Headline = $"خصم {ad.DiscountPercent}% على {Headline(kit.Slug)}";
+                            ad.ImageKey = Pick(banners);
+                        }
+                        else if (slot == AdSlot.FeaturedPage)
+                        {
+                            ad.Headline = page.Bio ?? $"أفضل أسعار {Headline(kit.Slug)}";
+                            ad.ImageKey = page.ImageKey;
+                        }
+                        else
+                        {
+                            ad.Headline = Pick<string>(["عرضنا يطلع أول على طلبك — سعر منافس وتوصيل سريع", "أسعار جملة للمفرد، جرّب عرضنا",
+                                $"{Headline(kit.Slug)} أصلية بكفالة — عرضنا أولاً"]);
+                            ad.ImageKey = pageProducts.Count > 0 ? pageProducts[0].ImageKeys.FirstOrDefault() : page.ImageKey;
+                        }
+                        if (status == AdStatus.Rejected) ad.Note = RejectNotes[reject++ % RejectNotes.Length];
+                        if (status == AdStatus.PausedSuspended) ad.Note = "متوقف مؤقتاً بسبب تعليق الصفحة";
+                        advertised.Add(page.Id);
+                        break;
+                    }
+                }
+
+                // Delivery stats: what the ad got while it was running.
+                var ran = status switch
+                {
+                    AdStatus.Active when !scheduled => Math.Max(0.3, (now - start).TotalDays),
+                    AdStatus.Ended => (end - start).TotalDays,
+                    AdStatus.PausedSuspended or AdStatus.PausedBalance => Math.Max(0.2, Math.Min((now - start).TotalDays, 2)),
+                    _ => 0,
+                };
+                var perDay = slot switch { AdSlot.HomeBanner => Int(400, 1500), AdSlot.FeaturedPage => Int(80, 350), _ => Int(20, 90) };
+                ad.Impressions = (long)(ran * perDay);
+                ad.Clicks = (long)(ad.Impressions * (rng.NextDouble() * 0.04 + 0.015));
+
+                // Page ads are prepaid like AdsService.CreateAsync: the whole booking is charged up front.
+                // Rejected ads got the money back; a page suspended mid-campaign got the unused days back; PausedBalance never paid.
+                if (page is not null && dailyPrice > 0 && status != AdStatus.PausedBalance)
+                {
+                    var bookedDays = (int)Math.Round((end - start).TotalDays);
+                    var total = dailyPrice * bookedDays;
+                    ad.LastChargedOn = end.Date;
+                    ledger.Add(new LedgerEntry { Id = NewId(), PageId = page.Id, Type = LedgerType.AdCharge, Amount = -total, RefId = ad.Id, Note = $"إعلان: {ad.Title}", CreatedAt = created });
+                    long refund = status switch
+                    {
+                        AdStatus.Rejected => total,
+                        AdStatus.PausedSuspended => Math.Min(total, Math.Max(0, (int)Math.Floor((end - now).TotalDays)) * dailyPrice),
+                        _ => 0,
+                    };
+                    if (refund > 0)
+                        ledger.Add(new LedgerEntry { Id = NewId(), PageId = page.Id, Type = LedgerType.AdRefund, Amount = refund, RefId = ad.Id, Note = $"استرجاع مبلغ إعلان: {ad.Title}",
+                            CreatedAt = status == AdStatus.Rejected ? created.AddHours(Int(2, 20)) : Between(start, now.AddHours(-1)) });
+                }
+                else if (page is null) ad.LastChargedOn = end.Date;
+                ads.Add(ad);
+            }
+
+            MarkSponsoredOffers();
+        }
+
+        private long AdsDailyPrice(AdSlot slot) => slot switch
+        {
+            AdSlot.HomeBanner => rules.BannerDaily,
+            AdSlot.FeaturedPage => rules.FeaturedWeekly / 7,
+            _ => rules.SponsoredOffer,
+        };
+
+        /// <summary>
+        /// Same rule as OfferService: the first offer on a request from a page whose sponsored-offer ad was running at that
+        /// moment is marked sponsored and pinned on the request (it is listed first).
+        /// </summary>
+        private void MarkSponsoredOffers()
+        {
+            var sponsoredAds = ads.Where(a => a.Slot == AdSlot.SponsoredOffer && a.PageId != null
+                && a.Status is AdStatus.Active or AdStatus.Ended or AdStatus.PausedSuspended).ToList();
+            if (sponsoredAds.Count == 0) return;
+            var byPage = sponsoredAds.GroupBy(a => a.PageId!.Value).ToDictionary(g => g.Key, g => g.ToList());
+            var requestById = requests.ToDictionary(r => r.Id);
+            foreach (var group in offers.GroupBy(x => x.RequestId))
+            {
+                var r = requestById[group.Key];
+                if (r.SponsoredOfferId != null) continue;
+                foreach (var offer in group.OrderBy(x => x.CreatedAt))
+                {
+                    if (!byPage.TryGetValue(offer.PageId, out var list)) continue;
+                    var ad = list.FirstOrDefault(a => a.StartAt <= offer.CreatedAt && offer.CreatedAt < a.EndAt
+                        && (a.Status != AdStatus.PausedSuspended || offer.CreatedAt < now.AddDays(-2)));
+                    if (ad is null) continue;
+                    offer.Sponsored = true;
+                    r.SponsoredOfferId = offer.Id;
+                    if (offer.Status == OfferStatus.Selected) ad.Selections++;
+                    break;
+                }
             }
         }
 
         private static string Headline(string slug) => slug switch
         {
             "phones" => "الموبايلات والإكسسوارات", "shoes" => "الأحذية الرياضية", "clothes" => "الموديلات الجديدة", "perfumes" => "العطور",
-            "watches" => "الساعات", "care" => "منتجات العناية", "home" => "الأجهزة المنزلية", "electronics" => "الألعاب واللابتوبات", _ => "بوكسات الهدايا",
+            "watches" => "الساعات", "care" => "منتجات العناية", "home" => "مستلزمات البيت", "electronics" => "الألعاب واللابتوبات",
+            "furniture" => "الأثاث وغرف النوم", "appliances" => "الأجهزة المنزلية", "gaming" => "أجهزة وألعاب الفيديو", "car-parts" => "قطع غيار السيارات",
+            "kids" => "ألعاب ومستلزمات الأطفال", "sports" => "المعدات الرياضية", "books" => "الكتب والقرطاسية", "beauty" => "المكياج والتجميل",
+            "pharmacy" => "المستلزمات الصحية", "food" => "الحلويات والمأكولات", "flowers" => "الورد والنباتات", "pets" => "مستلزمات الحيوانات الأليفة",
+            "tools" => "العدد والأدوات", _ => "بوكسات الهدايا",
         };
 
-        /// <summary>Opening balance as one top-up ledger entry, minus what running ads already charged, so balance = sum of the ledger.</summary>
+        /// <summary>Every page ends at <see cref="PageBalance"/>: one opening top-up covers whatever the ledger already moved, so balance = sum of the ledger.</summary>
         private void Balances()
         {
-            foreach (var page in pages.Where(p => p.Status == PageStatus.Verified))
+            var moved = ledger.GroupBy(e => e.PageId)
+                .ToDictionary(g => g.Key, g => (Sum: g.Sum(e => e.Amount), First: g.Min(e => e.CreatedAt)));
+            foreach (var page in pages)
             {
-                var pageAds = ads.Where(a => a.PageId == page.Id).ToList();
-                long topUp = pageAds.Count > 0 ? Pick<long>([100_000L, 150_000L, 200_000L]) : Chance(0.35) ? Pick<long>([10_000L, 25_000L, 50_000L]) : 0;
-                if (topUp == 0) continue;
-                var at = Between(page.CreatedAt.AddDays(1), pageAds.Count > 0 ? pageAds.Min(a => a.StartAt).AddHours(-1) : now.AddDays(-1));
-                ledger.Add(new LedgerEntry { Id = NewId(), PageId = page.Id, Type = LedgerType.TopUp, Amount = topUp, Note = "شحن رصيد", CreatedAt = at });
-                long balance = topUp;
-                foreach (var ad in pageAds)
-                {
-                    var days = Math.Max(1, (int)Math.Ceiling((now - ad.StartAt).TotalDays));
-                    var charge = Math.Min(balance, days * ad.DailyPrice);
-                    balance -= charge;
-                    ledger.Add(new LedgerEntry { Id = NewId(), PageId = page.Id, Type = LedgerType.AdCharge, Amount = -charge, RefId = ad.Id, Note = "إعلان", CreatedAt = now.AddHours(-Int(1, 12)) });
-                }
-                page.Balance = balance;
+                var (sum, first) = moved.TryGetValue(page.Id, out var m) ? m : (Sum: 0L, First: now);
+                var topUp = PageBalance - sum;
+                var at = first.AddHours(-Int(2, 48));
+                var floor = page.CreatedAt.AddHours(1);
+                if (at < floor) at = floor;
+                if (at > now.AddHours(-1)) at = Between(page.CreatedAt, now.AddHours(-1));
+                if (topUp != 0)
+                    ledger.Add(new LedgerEntry { Id = NewId(), PageId = page.Id, Type = LedgerType.TopUp, Amount = topUp, Note = "شحن رصيد", CreatedAt = at });
+                page.Balance = PageBalance;
             }
         }
 
@@ -954,6 +1326,8 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                     Id = NewId(), PageId = page.Id, Email = $"{page.InstagramHandle}@{SellerEmailDomain}".ToLowerInvariant(),
                     PasswordHash = hash, CreatedAt = page.CreatedAt.AddDays(1),
                 });
+            // The showcase owner can also sign in to the app with phone + password (POST /api/v1/auth/login), no OTP needed.
+            if (showcase is not null && ownerOf.TryGetValue(showcase.Id, out var showcaseOwner)) showcaseOwner.PasswordHash = hash;
         }
 
         /// <summary>SaveChanges stamps updated_at = now; make it match the seeded history.</summary>
