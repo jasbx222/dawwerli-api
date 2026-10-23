@@ -4,6 +4,11 @@ Replaces every non-admin row (demo/test users, pages, products, orders, requests
 Arabic, Iraq-based, fictional data that looks like a live marketplace. Admin accounts, business settings (`settings` id 1),
 governorates, categories, banned keywords and the audit log are kept. Missing catalog categories are added (see below).
 
+**Real users are protected.** Seeded accounts are recognised by their fictional phone blocks (`0790001xxxx`, `0790002xxxx`).
+If any other non-admin user exists (someone who signed up for real), the wipe is refused: the startup path then only adds
+product sizes (nothing is deleted), and the CLI `--wipe` stops unless `--include-real-users` is added. `--dry-run` prints
+how many real users there are.
+
 ## What gets created (defaults)
 
 | Data | Default |
@@ -20,6 +25,18 @@ governorates, categories, banned keywords and the audit log are kept. Missing ca
 
 History is spread over the last 180 days. Phones use fictional blocks: customers `0790001xxxx`, page users `0790002xxxx`,
 couriers `0790003xxxx`. Prices are in IQD.
+
+### Product sizes (live-seed-v3)
+
+Every seeded product has a real-world size in cm (`width_cm`, `height_cm`, `depth_cm`, 1 decimal, 1–1000), taken from
+its template in `LiveSeedDimensions.cs`: e.g. iPhone 15 Pro Max 7.7 × 16.0, 7-seat sofa set 230 × 85 × 90, 14 ft fridge
+70 × 175 × 70, 205/55 R16 tyre 63.2 × 63.2 × 20.5. Sizes are of the item itself (a phone without its box, a garment laid flat,
+one shoe, furniture assembled). Depth is left empty for items thinner than 1 cm (phones, cards, clothes, screen protectors).
+Variants and "مستعمل" listings of a template share its size. Only real wall items (TVs, mirrors, canvas art, frames, wall
+rugs) have a wall kind and a variant group, so only they show «حطها على حايطك».
+
+The sizes are a lookup and do not use the random stream, so with the same `Seed__RandomSeed` and counts a v3 seed creates
+exactly the same products as v2 (same ids, names, prices, pages and seller passwords), now with sizes.
 
 ### Showcase page
 
@@ -112,9 +129,16 @@ secondary category). Counts from a default run:
 
 ### Timing and memory
 
-Local run, 8 cores, default volume: about 6 s inside the transaction, about 8 s for the whole process. Peak memory is
-about 650 MB with the default server GC and about 330 MB with `DOTNET_gcServer=0`. On a small server set
-`DOTNET_gcServer=0` for the seeding run (or for the API in general).
+Local run, default volume (25,000 products), `DOTNET_gcServer=0`:
+
+| Run | Inside the transaction | Whole process | Peak memory |
+|---|---|---|---|
+| `--wipe --confirm` (wipe + reseed) | about 7 s | about 9 s | about 340 MB |
+| `--backfill-dimensions --confirm` | about 1 s | about 3 s | about 230 MB |
+| `--dry-run` | - | about 2 s | about 200 MB |
+
+With the default server GC the wipe + reseed peaks around 650 MB. On a small server set `DOTNET_gcServer=0` for the
+seeding run (or for the API in general).
 
 ## 1. Back up first
 
@@ -132,23 +156,31 @@ pg_dump -h <host> -U <user> -d <db> -Fc -f dawwerli-before-live-seed-$(date +%F-
    `Seed__MinProductsPerPage` / `Seed__MaxProductsPerPage` (default 50 / 50, max 200), `Seed__Customers`, `Seed__Offers`,
    `Seed__StoreOrders`, `Seed__Ads`, `Seed__FeaturedPages`, `Seed__HistoryDays`, `Seed__RandomSeed`.
 2. Deploy / restart. After migrations and before the API starts listening it takes a Postgres advisory lock, checks for the
-   marker row (`settings` id 9001 containing `live-seed-v2`) and, if absent, wipes and seeds in one transaction, then
-   writes the marker. If anything fails the transaction rolls back and nothing changes.
+   marker row (`settings` id 9001 containing `live-seed-v3`) and, if absent, wipes and seeds in one transaction, then
+   writes the marker. If real (non-seeded) users exist it deletes nothing and only adds sizes to the seeded products
+   (see "Upgrading" below). If anything fails the transaction rolls back and nothing changes.
 3. Check the logs:
    ```
-   warn: ... Live seed: Seed:Live=true and no marker live-seed-v2. DELETING all non-admin data and seeding live data now.
+   warn: ... Live seed: Seed:Live=true and no marker live-seed-v3. DELETING all seeded data and seeding live data now.
    warn: ... Live seed: wiped N rows: pages=…, users (non-admin)=…
    warn: ... Live seed: done in 6.2s: customers=50, page_users=500, pages=500, … Remove Seed__Live from the server environment.
    warn: ... Live seed: showcase page: مركز الرافدين للموبايلات (@rafidain.mobile), app login phone 07900020001 …
    ```
-   On later restarts: `Live seed: marker live-seed-v2 found, skipping.`
+   On later restarts: `Live seed: marker live-seed-v3 found, skipping.`
 4. Remove `Seed__Live` (and `Seed__SellerPassword`) from the server environment. The marker makes it safe if you forget,
    but don't leave it on. While the marker exists the QA demo scenario is never re-added.
 
-**Upgrading from v1.** The marker key is now `live-seed-v2`. A server that already ran the first version has a
-`live-seed-v1` marker, which counts as "no marker": if `Seed__Live=true` is still (or again) set, the next restart wipes
-and seeds **once** with the new data, writes `live-seed-v2`, and skips from then on. If you do not want the re-seed,
-make sure `Seed__Live` is not set.
+**Upgrading from v1/v2.** The marker key is now `live-seed-v3`. A server that already ran an older version has a
+`live-seed-v1`/`live-seed-v2` marker, which counts as "no marker": if `Seed__Live=true` is set, the next restart
+re-seeds **once**, writes `live-seed-v3`, and skips from then on:
+
+- only seeded users in the database: full wipe + reseed. With the same `Seed__RandomSeed` and counts the products are the
+  same as before (same ids, names, prices), now with sizes. Orders, follows, ads… are re-created as fresh seed data.
+- real (non-seeded) users present: nothing is deleted. The seeded products that have no size get one (same values as a
+  fresh v3 seed), and the log says `… real (non-seeded) users exist, so NOTHING is deleted. Adding sizes …`.
+
+If you do not want either, make sure `Seed__Live` is not set. To only add sizes without restarting, use
+`seed-live --backfill-dimensions --confirm` (below).
 
 To seed again later, use the CLI with `--wipe` (it ignores the marker), or delete the marker row and restart with the flag.
 
@@ -158,12 +190,22 @@ The command exits without starting the web host. It uses the same configuration 
 
 ```bash
 dotnet Dawwerli.Api.dll seed-live --dry-run              # read only: prints host/db/user (never the password), current counts, plan
-dotnet Dawwerli.Api.dll seed-live --wipe --confirm       # wipe non-admin data + seed
+dotnet Dawwerli.Api.dll seed-live --wipe --confirm       # wipe seeded data + seed (refused if real users exist)
+dotnet Dawwerli.Api.dll seed-live --backfill-dimensions --confirm   # only add sizes to seeded products; deletes nothing
+dotnet Dawwerli.Api.dll seed-live --wipe --include-real-users --confirm   # wipe ALL non-admin data, real users included
 dotnet Dawwerli.Api.dll seed-live --wipe --confirm --seed 7 --pages 300 --customers 40 --ads 30
 DOTNET_gcServer=0 dotnet Dawwerli.Api.dll seed-live --wipe --confirm   # lower memory on a small server
 ```
 
 Without `--wipe` it refuses when pages or the marker already exist. Without `--confirm` it writes nothing.
+
+`--backfill-dimensions` sets width/height/depth on products that have none, only on pages owned by seeded page users
+(`0790002xxxx`); products of real sellers are left alone. Ids, orders, reviews, favourites and carts stay. It writes the
+`live-seed-v3` marker, so a later `Seed__Live=true` start skips. Run it again any time; products that already have a size
+are not changed.
+
+Seeded users are recognised by hashing the fictional phones with `Security__PhoneHashKey`, so run the command with the same
+key the API uses (it reads the same environment).
 In Docker: `docker compose exec api dotnet Dawwerli.Api.dll seed-live --dry-run` (use your service name).
 
 ## 4. Restore
