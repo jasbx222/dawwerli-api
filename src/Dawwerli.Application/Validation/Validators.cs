@@ -135,6 +135,52 @@ public sealed class UpsertProductValidator : AbstractValidator<UpsertProductDto>
         RuleFor(x => x.CategoryId).GreaterThan(0);
         RuleFor(x => x.ImageKeys).NotNull();
         RuleForEach(x => x.ImageKeys).NotEmpty().MaximumLength(200);
+
+        // Physical size: 1–1000 cm with at most one decimal; width and height come together.
+        RuleFor(x => x.WidthCm).Must(ProductSize.IsValidCm!).When(x => x.WidthCm is not null)
+            .WithErrorCode("product.size").WithMessage("Width must be 1–1000 cm with at most one decimal");
+        RuleFor(x => x.HeightCm).Must(ProductSize.IsValidCm!).When(x => x.HeightCm is not null)
+            .WithErrorCode("product.size").WithMessage("Height must be 1–1000 cm with at most one decimal");
+        RuleFor(x => x.DepthCm).Must(ProductSize.IsValidCm!).When(x => x.DepthCm is not null)
+            .WithErrorCode("product.size").WithMessage("Depth must be 1–1000 cm with at most one decimal");
+        RuleFor(x => x.HeightCm).NotNull().When(x => x.WidthCm is not null)
+            .WithErrorCode("product.size").WithMessage("Width and height go together");
+        RuleFor(x => x.WidthCm).NotNull().When(x => x.HeightCm is not null || x.DepthCm is not null || !string.IsNullOrWhiteSpace(x.WallKind))
+            .WithErrorCode("product.size").WithMessage("Set width and height first");
+        RuleFor(x => x.WallKind).Must(k => ProductSize.TryParseWallKind(k, out _)).When(x => !string.IsNullOrWhiteSpace(x.WallKind))
+            .WithErrorCode("product.wall_kind").WithMessage("Unknown wall kind");
+
+        // Variants: a page-local key plus a short label for the switcher. Blank group/kind = none.
+        RuleFor(x => x.VariantGroup).Must(g => ProductSize.NormalizeGroup(g) is not null).When(x => !string.IsNullOrWhiteSpace(x.VariantGroup))
+            .WithErrorCode("product.variant_group").WithMessage("Group key: 1–40 of a-z, 0-9, '-' or '_'");
+        RuleFor(x => x.VariantLabel).NotEmpty().When(x => !string.IsNullOrWhiteSpace(x.VariantGroup))
+            .WithErrorCode("product.variant_label").WithMessage("A variant needs a label");
+        RuleFor(x => x.VariantLabel).MaximumLength(30);
+    }
+}
+
+/// <summary>Shared rules for product sizes and variant keys (validator, service and seeder use the same ones).</summary>
+public static class ProductSize
+{
+    public const decimal MinCm = 1, MaxCm = 1000;
+    private static readonly System.Text.RegularExpressions.Regex GroupKey = new("^[a-z0-9_-]{1,40}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    public static bool IsValidCm(decimal? v) => v is { } d && d >= MinCm && d <= MaxCm && decimal.Round(d, 1) == d;
+
+    /// <summary>Accepts the API codes only (tv, mirror, ...), never numbers.</summary>
+    public static bool TryParseWallKind(string? text, out Dawwerli.Domain.Entities.WallKind kind)
+    {
+        kind = default;
+        var t = text?.Trim();
+        if (string.IsNullOrEmpty(t) || !t.All(char.IsAsciiLetter)) return false;
+        return Enum.TryParse(t, ignoreCase: true, out kind) && Enum.IsDefined(kind);
+    }
+
+    /// <summary>Trimmed, lower-cased key, or null when empty or malformed.</summary>
+    public static string? NormalizeGroup(string? key)
+    {
+        var k = key?.Trim().ToLowerInvariant();
+        return string.IsNullOrEmpty(k) || !GroupKey.IsMatch(k) ? null : k;
     }
 }
 

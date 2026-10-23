@@ -1,3 +1,5 @@
+using Dawwerli.Domain.Entities;
+
 namespace Dawwerli.Infrastructure.Persistence.LiveSeed;
 
 /// <summary>Fictional Iraqi names, places and listings used by <see cref="LiveDataSeeder"/>. Nothing here is a real person or shop.</summary>
@@ -65,7 +67,22 @@ internal static class LiveSeedData
     public sealed record CategoryKit(string Slug, string HandleTag, string[] ShopPrefixes, string[] Bios, ProductSeed[] Products, string[] RequestTexts, string[] AvatarTags);
 
     /// <summary>A product template: price range in IQD, image tag (see <see cref="LiveSeedImages"/>) and optional spec variants.</summary>
-    public sealed record ProductSeed(string Name, string Description, long MinPrice, long MaxPrice, string Tag, string[]? Variants = null, bool CanBeUsed = false);
+    /// <remarks>
+    /// With <paramref name="Wall"/> the template is wall-placeable: every variant gets its own size (same order as
+    /// <paramref name="Variants"/>) and the variants are linked as one group with prices rising from MinPrice to MaxPrice.
+    /// </remarks>
+    public sealed record ProductSeed(string Name, string Description, long MinPrice, long MaxPrice, string Tag, string[]? Variants = null, bool CanBeUsed = false,
+        WallSeed? Wall = null);
+
+    /// <summary>Wall kind, page-local variant group key and real-world sizes in cm (width, height, depth) per variant.</summary>
+    public sealed record WallSeed(WallKind Kind, string Group, (decimal W, decimal H, decimal? D)[] Sizes);
+
+    // Real panel sizes without the stand (43/55/65-inch 16:9 sets).
+    private static readonly WallSeed Tv4K = new(WallKind.Tv, "tv-smart-4k", [(96.3m, 56.1m, 7.6m), (123.1m, 70.9m, 5.9m), (145.1m, 83.0m, 5.9m)]);
+    private static readonly ProductSeed TvTemplate = new("شاشة سمارت 4K", "شاشة LED بدقة 4K وأنظمة سمارت، تعليقة جدارية هدية. القياس بدون الستاند.",
+        280_000, 750_000, "tv", ["43 بوصة", "55 بوصة", "65 بوصة"], Wall: Tv4K);
+    private static readonly ProductSeed MirrorTemplate = new("مراية دائرية بإطار ذهبي", "زجاج بلجيكي مع إطار معدن ذهبي، تعليقة مخفية.",
+        45_000, 85_000, "mirror", ["قطر 60 سم", "قطر 80 سم"], Wall: new(WallKind.Mirror, "mirror-round-gold", [(60m, 60m, 3m), (80m, 80m, 3.5m)]));
 
     public static readonly CategoryKit[] Kits =
     [
@@ -89,6 +106,7 @@ internal static class LiveSeedData
                 new("كفر سيليكون مع حماية كاميرا", "يتوفر لأغلب الأجهزة، ألوان متعددة.", 5_000, 12_000, "phoneacc"),
                 new("باور بانك 20000 ملي أمبير", "يشحن الموبايل 4 مرات، منفذين.", 25_000, 45_000, "phoneacc"),
                 new("شاشة حماية زجاج نانو", "تركيب مجاني بالمحل.", 5_000, 10_000, "phoneacc"),
+                TvTemplate,
             ],
             ["أريد آيفون 13 نظيف بطارية فوق 85", "أدور سامسونج A55 جديد بكارتونه", "شاومي ريدمي نوت 13 ذاكرة 256", "موبايل للوالدة شاشة كبيرة وسعر مناسب", "ايربودز أصلية مو كوبي"],
             ["phone"]),
@@ -193,6 +211,8 @@ internal static class LiveSeedData
                 new("مكنسة كهربائية", "قوة شفط 2000 واط.", 60_000, 120_000, "washer"),
                 new("دولاب ملابس 4 أبواب", "مع مراية، خشب MDF.", 260_000, 450_000, "table", null, true),
                 new("سرير نفرين مع الدوشك", "تصميم مودرن، دوشك طبي.", 320_000, 600_000, "sofa", null, true),
+                TvTemplate,
+                MirrorTemplate,
             ],
             ["سبلت 1.5 طن انفيرتر للصيف", "غسالة أوتوماتيك مستعملة نظيفة", "طقم قنفات 7 مقاعد لون رصاصي", "ثلاجة 14 قدم بحالة جيدة"],
             ["sofa", "fridge"]),
@@ -212,6 +232,7 @@ internal static class LiveSeedData
                 new("يو بي اس 1500 فولت", "يحمي الأجهزة من انقطاع الكهرباء.", 90_000, 150_000, "laptop"),
                 new("راوتر واي فاي 6", "تغطية للبيت كامل.", 45_000, 90_000, "laptop"),
                 new("هارد خارجي 1 تيرا", "USB 3.0، سريع ومضمون.", 55_000, 85_000, "laptop"),
+                TvTemplate,
             ],
             ["بلايستيشن 5 مستعمل نظيف", "لابتوب للطلاب سعر مناسب", "سماعة رأس عازلة للضوضاء", "يد إكس بوكس أصلية"],
             ["console", "laptop", "headphones"]),
@@ -244,6 +265,13 @@ internal static class LiveSeedData
                 new("كنتور ملابس 4 أبواب", "مع مراية ورفوف داخلية.", 260_000, 480_000, "wardrobe", null, true),
                 new("جزامة خشب", "تتسع 18 زوج، مع مراية.", 65_000, 120_000, "wardrobe"),
                 new("مكتبة كتب 5 رفوف", "تركيب سهل، لون خشبي.", 55_000, 110_000, "wardrobe"),
+                MirrorTemplate,
+                new("لوحة كانفاس تجريدية", "طباعة على قماش كانفاس مشدود على خشب، ألوان ثابتة.", 35_000, 75_000, "art", ["50×70 سم", "70×100 سم"],
+                    Wall: new(WallKind.Art, "art-canvas-dune", [(50m, 70m, 3m), (70m, 100m, 3m)])),
+                new("إطار صور خشب منقوش", "إطار كلاسيك بلون فضي مع زجاج، للصور واللوحات.", 15_000, 35_000, "frame", ["30×40 سم", "50×70 سم"],
+                    Wall: new(WallKind.Frame, "frame-carved", [(30m, 40m, 2.5m), (50m, 70m, 3m)])),
+                new("سجادة جدارية فارسية", "سجادة يدوية بنقشة كلاسيك، تتعلق عالحايط أو تنفرش.", 120_000, 260_000, "rug", ["160×230 سم", "200×300 سم"],
+                    Wall: new(WallKind.Rug, "rug-persian", [(160m, 230m, 1m), (200m, 300m, 1m)])),
             ],
             ["غرفة نوم كاملة لون أبيض", "قنفة زاوية تتحول سرير", "ميز طعام 6 كراسي خشب طبيعي", "كنتور 4 أبواب مستعمل نظيف"],
             ["sofa", "bed", "chair"]),
@@ -261,6 +289,7 @@ internal static class LiveSeedData
                 new("مكنسة كهربائية 2000 واط", "كيس قابل للغسل وفلتر هيبا.", 60_000, 130_000, "vacuum"),
                 new("خلاط ومحضرة طعام", "3 سرعات ومطحنة قهوة.", 35_000, 80_000, "blender"),
                 new("مبردة هواء 50 لتر", "تبريد صحراوي مع ريموت.", 120_000, 230_000, "ac", null, true),
+                TvTemplate,
             ],
             ["غسالة أوتوماتيك 9 كيلو بكفالة", "سبلت 2 طن للصالة", "ثلاجة نوفروست مستعملة نظيفة", "مايكرويف مع شواية"],
             ["washer", "fridge", "microwave"]),

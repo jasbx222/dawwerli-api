@@ -29,6 +29,10 @@ Page number 1 is a fixed demo store that is the busiest page in the data:
 - 50 products, 10 offers (6 selected), 20 store orders in every status (New, Accepted, OutForDelivery, Delivered, Cancelled,
   Rejected), the most followers, product reviews, admin-featured order 1, one running ad in each slot (home banner,
   featured page, sponsored offer) and pinned sponsored offers, balance 25,000.
+- Wall-placeable products for «حطها على حايطك»: a 4K TV group (43/55/65 inch, real panel sizes without the stand) and a
+  round mirror group (60/80 cm). The showcase page and every phones, electronics, home and appliance page lists the TV
+  group; home and furniture pages list the mirror, and furniture pages also the canvas art, frame and wall rug groups. Every size of a group is always listed (width/height/depth in cm, wall kind,
+  page-local variant group and label), shares one set of photos and is priced from the template's min to max.
 
 At the end the seeder logs one line with the name, the phone, whether phone + password login is on (and for how many
 page owners) and (only when `Seed__SellerPassword` is set) the seller-portal email `rafidain.mobile@sellers.dawwerli.test`.
@@ -187,6 +191,7 @@ Product, page and ad images are hot-linked from Wikimedia Commons under the lice
 | [2025.11.29 Niemen Stolle Rosaline Perfume Bottle 01.jpg](https://commons.wikimedia.org/wiki/File:2025.11.29_Niemen_Stolle_Rosaline_Perfume_Bottle_01.jpg) | Illarion Kalashnikov | CC BY-SA 4.0 |
 | [A bottle of BOSS ALIVE Perfume that smells sweet and of jasmine sambac.jpg](https://commons.wikimedia.org/wiki/File:A_bottle_of_BOSS_ALIVE_Perfume_that_smells_sweet_and_of_jasmine_sambac.jpg) | Sleepytimecat | CC BY 4.0 |
 | [A handbag.jpg](https://commons.wikimedia.org/wiki/File:A_handbag.jpg) | ALHASSAN MOHAMED NURIDEEN | CC BY-SA 4.0 |
+| [Abstract large painting 'Dune landscape' painted by Dutch artist Fons Heijnsbroek in acryl paint in 1990; free download art image.jpg](https://commons.wikimedia.org/wiki/File:Abstract_large_painting_'Dune_landscape'_painted_by_Dutch_artist_Fons_Heijnsbroek_in_acryl_paint_in_1990%3B_free_download_art_image.jpg) | Fons Heijnsbroek | CC0 |
 | [Aluminium Dumbbell.jpg](https://commons.wikimedia.org/wiki/File:Aluminium_Dumbbell.jpg) | Designproduct | CC BY-SA 4.0 |
 | [Amaryllis (Hippeastrum) 18-01-2025. (actm.) 04.jpg](https://commons.wikimedia.org/wiki/File:Amaryllis_(Hippeastrum)_18-01-2025._(actm.)_04.jpg) | Agnes Monkelbaan | CC BY-SA 4.0 |
 | [Analog Wrist Watch.jpg](https://commons.wikimedia.org/wiki/File:Analog_Wrist_Watch.jpg) | Aditya Oberai | CC BY-SA 4.0 |
@@ -231,6 +236,7 @@ Product, page and ad images are hot-linked from Wikimedia Commons under the lice
 | [Fagor washing machine front FF6314.jpg](https://commons.wikimedia.org/wiki/File:Fagor_washing_machine_front_FF6314.jpg) | Dany kg | Public domain |
 | [Flower bouquet for a newborn in Christmas.jpg](https://commons.wikimedia.org/wiki/File:Flower_bouquet_for_a_newborn_in_Christmas.jpg) | M&A | CC BY-SA 4.0 |
 | [Fossil wrist watch 2022.jpg](https://commons.wikimedia.org/wiki/File:Fossil_wrist_watch_2022.jpg) | Cvmontuy | CC BY-SA 4.0 |
+| [Frame MET 45186.jpg](https://commons.wikimedia.org/wiki/File:Frame_MET_45186.jpg) | Stanford White (The Metropolitan Museum of Art) | CC0 |
 | [Gaming computers (1).jpg](https://commons.wikimedia.org/wiki/File:Gaming_computers_(1).jpg) | Notdjey | CC BY 2.0 |
 | [Giordani toy car in Fisogni Museum.jpg](https://commons.wikimedia.org/wiki/File:Giordani_toy_car_in_Fisogni_Museum.jpg) | Moxmarco | CC BY-SA 4.0 |
 | [Goldfish in fish tank.jpg](https://commons.wikimedia.org/wiki/File:Goldfish_in_fish_tank.jpg) | Ashu0203 | CC BY-SA 3.0 |
@@ -243,6 +249,7 @@ Product, page and ad images are hot-linked from Wikimedia Commons under the lice
 | [Hitachi CV-HG5 20130711.jpg](https://commons.wikimedia.org/wiki/File:Hitachi_CV-HG5_20130711.jpg) | ミトン | CC BY-SA 4.0 |
 | [Huawei Smartwatch Fit 2.jpg](https://commons.wikimedia.org/wiki/File:Huawei_Smartwatch_Fit_2.jpg) | D Eaketts | CC BY-SA 4.0 |
 | [IBM Thinkpad R51.jpg](https://commons.wikimedia.org/wiki/File:IBM_Thinkpad_R51.jpg) | André Karwath aka Aka | CC BY-SA 4.0 |
+| [Indo-Persian carpet with medallions MET DP265209.jpg](https://commons.wikimedia.org/wiki/File:Indo-Persian_carpet_with_medallions_MET_DP265209.jpg) | The Metropolitan Museum of Art | CC0 |
 | [IPhone4.jpg](https://commons.wikimedia.org/wiki/File:IPhone4.jpg) | SimonWaldherr | CC BY-SA 4.0 |
 | [Interior of clothing store mall.jpg](https://commons.wikimedia.org/wiki/File:Interior_of_clothing_store_mall.jpg) | BornToZucc | CC BY-SA 4.0 |
 | [Jean jacket.jpg](https://commons.wikimedia.org/wiki/File:Jean_jacket.jpg) | NikosLikomitros | CC0 |
@@ -261,6 +268,7 @@ Product, page and ad images are hot-linked from Wikimedia Commons under the lice
 | [Marriage gift box.jpg](https://commons.wikimedia.org/wiki/File:Marriage_gift_box.jpg) | Sri2161k | CC BY-SA 4.0 |
 | [Men's long-sleeve T-shirt.jpg](https://commons.wikimedia.org/wiki/File:Men%27s_long-sleeve_T-shirt.jpg) | Spreadshirt | CC BY 2.0 |
 | [Microwave oven flashon.jpg](https://commons.wikimedia.org/wiki/File:Microwave_oven_flashon.jpg) | Wrightmt | Public domain |
+| [Mirror, wall (AM 12714-1).jpg](https://commons.wikimedia.org/wiki/File:Mirror,_wall_(AM_12714-1).jpg) | Auckland War Memorial Museum | CC BY 4.0 |
 | [Mobile phone case.jpg](https://commons.wikimedia.org/wiki/File:Mobile_phone_case.jpg) | Tiia Monto | CC BY-SA 4.0 |
 | [Mobile phone shop in Malang.jpg](https://commons.wikimedia.org/wiki/File:Mobile_phone_shop_in_Malang.jpg) | Christophe95 | CC BY-SA 4.0 |
 | [Mobile phone shop in South Korea 2021 (inside).jpg](https://commons.wikimedia.org/wiki/File:Mobile_phone_shop_in_South_Korea_2021_(inside).jpg) | Piotrus | CC BY-SA 4.0 |
@@ -278,6 +286,7 @@ Product, page and ad images are hot-linked from Wikimedia Commons under the lice
 | [Panasonic HOME REFRIGERATOR NR-C320WP-N.jpg](https://commons.wikimedia.org/wiki/File:Panasonic_HOME_REFRIGERATOR_NR-C320WP-N.jpg) | Dinkun Chen | CC BY-SA 4.0 |
 | [Panasonic WASHING MACHINE XQB70-H710U.jpg](https://commons.wikimedia.org/wiki/File:Panasonic_WASHING_MACHINE_XQB70-H710U.jpg) | Dinkun Chen | CC BY-SA 4.0 |
 | [Perfume glass bottle.jpg](https://commons.wikimedia.org/wiki/File:Perfume_glass_bottle.jpg) | Santeri Viinamäki | CC BY-SA 4.0 |
+| [Persian Carpet (51759428441).jpg](https://commons.wikimedia.org/wiki/File:Persian_Carpet_(51759428441).jpg) | Ninara | CC BY 2.0 |
 | [Pile of light gray LEGO bricks at a LEGO store.jpg](https://commons.wikimedia.org/wiki/File:Pile_of_light_gray_LEGO_bricks_at_a_LEGO_store.jpg) | Grendelkhan | CC BY-SA 4.0 |
 | [PineTime smartwatch.jpg](https://commons.wikimedia.org/wiki/File:PineTime_smartwatch.jpg) | Unnerving duck | CC0 |
 | [Plaid IZOD men's shirt.jpg](https://commons.wikimedia.org/wiki/File:Plaid_IZOD_men%27s_shirt.jpg) | Punker1999 | CC0 |
@@ -291,6 +300,9 @@ Product, page and ad images are hot-linked from Wikimedia Commons under the lice
 | [Samsung Galaxy (Onyx Black) - Back.jpg](https://commons.wikimedia.org/wiki/File:Samsung_Galaxy_(Onyx_Black)_-_Back.jpg) | Beamish4 | CC BY-SA 4.0 |
 | [Samsung Galaxy S20.jpg](https://commons.wikimedia.org/wiki/File:Samsung_Galaxy_S20.jpg) | Danish971 | CC BY-SA 4.0 |
 | [Samsung Galaxy S6 (Gold Platinum) - Front.jpg](https://commons.wikimedia.org/wiki/File:Samsung_Galaxy_S6_(Gold_Platinum)_-_Front.jpg) | Beamish4 | CC BY-SA 4.0 |
+| [Samsung OLED TV.jpg](https://commons.wikimedia.org/wiki/File:Samsung_OLED_TV.jpg) | Samsung Belgium | CC BY 2.0 |
+| [Samsung UE65F9005STXXE front black 20130613.jpg](https://commons.wikimedia.org/wiki/File:Samsung_UE65F9005STXXE_front_black_20130613.jpg) | Samsung Belgium | CC BY 2.0 |
+| [Sanyo XT-43S7100F 20160808.jpg](https://commons.wikimedia.org/wiki/File:Sanyo_XT-43S7100F_20160808.jpg) | Sanyo | CC BY-SA 4.0 |
 | [Silver nail polish bottles..jpg](https://commons.wikimedia.org/wiki/File:Silver_nail_polish_bottles..jpg) | evhoffman | CC BY-SA 2.0 |
 | [Smartphone Samsung Galaxy J3 2016.jpg](https://commons.wikimedia.org/wiki/File:Smartphone_Samsung_Galaxy_J3_2016.jpg) | Gzen92 | CC BY-SA 4.0 |
 | [Sneakers .jpg](https://commons.wikimedia.org/wiki/File:Sneakers_.jpg) | Kid Keen 47 | CC BY-SA 4.0 |

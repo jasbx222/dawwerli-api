@@ -72,10 +72,10 @@ public sealed class AdminStoreService(StoreKit kit, Shared s, IPasswordHasher pa
         if (hidden is { } h) query = query.Where(x => x.HiddenByAdmin == h);
         if (!string.IsNullOrWhiteSpace(q)) query = query.Where(x => x.Name.ToLower().Contains(q.Trim().ToLower()));
         var total = await query.CountAsync(ct);
-        var rows = await query.OrderByDescending(x => x.CreatedAt).Skip((p - 1) * n).Take(n)
-            .Select(x => new AdminProductDto(x.Id, x.PageId, x.Page!.Name, x.Name, x.Price, x.Stock, x.Active, x.HiddenByAdmin, x.DeletedAt != null, x.CreatedAt))
-            .ToListAsync(ct);
-        return new PagedDto<AdminProductDto>(rows, total, p, n);
+        var rows = await query.OrderByDescending(x => x.CreatedAt).Skip((p - 1) * n).Take(n).Include(x => x.Page).ToListAsync(ct);
+        return new PagedDto<AdminProductDto>(rows.Select(x => new AdminProductDto(x.Id, x.PageId, x.Page!.Name, x.Name, x.Price, x.Stock, x.Active,
+            x.HiddenByAdmin, x.DeletedAt != null, x.CreatedAt, x.WidthCm, x.HeightCm, x.DepthCm, StoreKit.WallKindCode(x), x.VariantGroup, x.VariantLabel)).ToList(),
+            total, p, n);
     }
 
     public async Task<Result> SetHiddenAsync(Guid id, bool hidden, CancellationToken ct)

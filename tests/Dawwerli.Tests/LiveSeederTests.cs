@@ -109,6 +109,38 @@ public class LiveSeederTests(LiveSeedApiFactory factory) : IClassFixture<LiveSee
     }
 
     [Fact]
+    public async Task Wall_products_come_in_complete_valid_variant_groups()
+    {
+        var (scope, db, _, _) = await OpenAsync();
+        await using var __ = scope;
+        var showcase = await db.Pages.SingleAsync(p => p.InstagramHandle == LiveDataSeeder.ShowcaseHandle);
+        var wall = await db.Products.Where(p => p.WallKind != null).ToListAsync();
+        Assert.NotEmpty(wall);
+        Assert.All(wall, p =>
+        {
+            Assert.True(Dawwerli.Application.Validation.ProductSize.IsValidCm(p.WidthCm!.Value));
+            Assert.True(Dawwerli.Application.Validation.ProductSize.IsValidCm(p.HeightCm!.Value));
+            Assert.True(p.DepthCm is null || Dawwerli.Application.Validation.ProductSize.IsValidCm(p.DepthCm.Value));
+            Assert.Equal(p.VariantGroup, Dawwerli.Application.Validation.ProductSize.NormalizeGroup(p.VariantGroup!));
+            Assert.False(string.IsNullOrWhiteSpace(p.VariantLabel));
+        });
+        // Every group has 2+ sizes on its page, distinct labels and prices that climb with the size.
+        foreach (var g in wall.GroupBy(p => (p.PageId, p.VariantGroup)))
+        {
+            var sizes = g.OrderBy(p => p.WidthCm).ToList();
+            Assert.InRange(sizes.Count, 2, 10);
+            Assert.Equal(sizes.Count, sizes.Select(p => p.VariantLabel).Distinct().Count());
+            Assert.Single(sizes.Select(p => p.WallKind).Distinct());
+            Assert.True(sizes.Zip(sizes.Skip(1)).All(x => x.First.Price < x.Second.Price), $"prices of {g.Key.VariantGroup}");
+        }
+        // The demo store has the TV group (43/55/65); home/furniture pages carry the round mirror.
+        var tvs = wall.Where(p => p.PageId == showcase.Id && p.WallKind == WallKind.Tv).OrderBy(p => p.WidthCm).ToList();
+        Assert.Equal(3, tvs.Count);
+        Assert.Equal([96.3m, 123.1m, 145.1m], tvs.Select(p => p.WidthCm!.Value));
+        Assert.Contains(wall, p => p.WallKind == WallKind.Mirror && p.WidthCm == p.HeightCm);
+    }
+
+    [Fact]
     public async Task Every_page_owner_can_sign_in_with_phone_and_the_seed_password()
     {
         var (scope, db, _, o) = await OpenAsync();

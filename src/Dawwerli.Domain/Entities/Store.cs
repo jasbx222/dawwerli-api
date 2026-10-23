@@ -23,6 +23,22 @@ public class Product : Entity
     public double Rating { get; set; }
     public int RatingCount { get; set; }
 
+    /// <summary>Physical size in cm (one decimal). Width and height come together; depth is optional.</summary>
+    public decimal? WidthCm { get; set; }
+    public decimal? HeightCm { get; set; }
+    public decimal? DepthCm { get; set; }
+    /// <summary>Set only for wall-placeable products (needs width and height).</summary>
+    public WallKind? WallKind { get; set; }
+    /// <summary>
+    /// Page-local key linking variants of one product (e.g. 43/55/65 inch). Siblings are looked up inside the same page only,
+    /// so another page using the same key never joins the group.
+    /// </summary>
+    public string? VariantGroup { get; set; }
+    /// <summary>Short switcher label for this variant (e.g. "55 بوصة"); required when <see cref="VariantGroup"/> is set.</summary>
+    public string? VariantLabel { get; set; }
+
+    public bool HasWallSize => WidthCm is not null && HeightCm is not null;
+    public bool WallPlaceable => HasWallSize && WallKind is not null;
     public bool Visible => Active && !HiddenByAdmin && DeletedAt == null;
     public bool Available => Visible && Stock > 0;
 }

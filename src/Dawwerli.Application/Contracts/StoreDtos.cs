@@ -6,14 +6,32 @@ public sealed record SellerSessionDto(string AccessToken, int ExpiresIn, Guid Pa
 public sealed record SellerMeDto(Guid AccountId, string Email, Guid PageId, string PageName, string PageStatus, int ProductCount, int ProductLimit);
 
 // Products
-public sealed record UpsertProductDto(string Name, string? Description, long Price, string[] ImageKeys, int CategoryId, int Stock, bool Active = true);
+/// <summary>
+/// Size fields are optional (cm, 1–1000, one decimal); a PUT replaces them like every other field, so send them back to keep them.
+/// WallKind (tv, mirror, frame, art, rug, shelf, clock, other) marks the product wall-placeable and needs width and height.
+/// VariantGroup links products of the same page only (lowercase a-z, 0-9, "-" or "_"); VariantLabel is then required.
+/// </summary>
+public sealed record UpsertProductDto(string Name, string? Description, long Price, string[] ImageKeys, int CategoryId, int Stock, bool Active = true,
+    decimal? WidthCm = null, decimal? HeightCm = null, decimal? DepthCm = null, string? WallKind = null,
+    string? VariantGroup = null, string? VariantLabel = null);
 public sealed record SellerProductDto(Guid Id, string Name, string Description, long Price, IReadOnlyList<string> ImageKeys, IReadOnlyList<string?> ImageUrls,
-    int CategoryId, int Stock, bool Active, bool HiddenByAdmin, bool Available, DateTime CreatedAt, double Rating = 0, int RatingCount = 0);
+    int CategoryId, int Stock, bool Active, bool HiddenByAdmin, bool Available, DateTime CreatedAt, double Rating = 0, int RatingCount = 0,
+    decimal? WidthCm = null, decimal? HeightCm = null, decimal? DepthCm = null, string? WallKind = null,
+    string? VariantGroup = null, string? VariantLabel = null);
 public sealed record ProductCardDto(Guid Id, string Name, long Price, string? ImageUrl, bool Available,
-    string Description = "", int Stock = 0, double Rating = 0, int RatingCount = 0);
+    string Description = "", int Stock = 0, double Rating = 0, int RatingCount = 0,
+    decimal? WidthCm = null, decimal? HeightCm = null, decimal? DepthCm = null, string? WallKind = null);
 public sealed record ProductDetailsDto(Guid Id, Guid PageId, string PageName, string Name, string Description, long Price,
     IReadOnlyList<string?> ImageUrls, int CategoryId, int Stock, bool Available, double Rating = 0, int RatingCount = 0,
-    bool HasRated = false, ProductReviewDto? MyReview = null, bool IsFavorite = false);
+    bool HasRated = false, ProductReviewDto? MyReview = null, bool IsFavorite = false,
+    decimal? WidthCm = null, decimal? HeightCm = null, decimal? DepthCm = null, string? WallKind = null,
+    string? VariantLabel = null, IReadOnlyList<ProductVariantDto>? Variants = null);
+/// <summary>
+/// A visible sibling of the same page and variant group (the product itself included), smallest first.
+/// Empty when the product has no siblings. The group key itself is never exposed to customers.
+/// </summary>
+public sealed record ProductVariantDto(Guid Id, string Label, string Name, long Price, int Stock, bool Available, string? ImageUrl,
+    decimal? WidthCm, decimal? HeightCm, decimal? DepthCm, string? WallKind);
 public sealed record TopRatedProductDto(Guid Id, Guid PageId, string PageName, double PageRating, int PageRatingCount, string Name, string Description,
     long Price, string? ImageUrl, int Stock, bool Available, double Rating = 0, int RatingCount = 0);
 
@@ -64,7 +82,8 @@ public sealed record SellerStatsDto(int TotalOrders, IReadOnlyDictionary<string,
 public sealed record CreateSellerAccountDto(Guid PageId, string Email, string Password);
 public sealed record ResetSellerPasswordDto(string Password);
 public sealed record SellerAccountDto(Guid Id, Guid PageId, string PageName, string Email, bool Disabled, DateTime? LockedUntil, DateTime? LastLoginAt, DateTime CreatedAt);
-public sealed record AdminProductDto(Guid Id, Guid PageId, string PageName, string Name, long Price, int Stock, bool Active, bool HiddenByAdmin, bool Deleted, DateTime CreatedAt);
+public sealed record AdminProductDto(Guid Id, Guid PageId, string PageName, string Name, long Price, int Stock, bool Active, bool HiddenByAdmin, bool Deleted, DateTime CreatedAt,
+    decimal? WidthCm = null, decimal? HeightCm = null, decimal? DepthCm = null, string? WallKind = null, string? VariantGroup = null, string? VariantLabel = null);
 public sealed record StoreSettingsDto(int MaxProductsPerPage, double CommissionPercent);
 public sealed record PageProductLimitDto(int? Limit);
 

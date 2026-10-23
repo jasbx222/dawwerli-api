@@ -1295,11 +1295,21 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
 
+                    b.Property<decimal?>("DepthCm")
+                        .HasPrecision(5, 1)
+                        .HasColumnType("numeric(5,1)")
+                        .HasColumnName("depth_cm");
+
                     b.Property<string>("Description")
                         .IsRequired()
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)")
                         .HasColumnName("description");
+
+                    b.Property<decimal?>("HeightCm")
+                        .HasPrecision(5, 1)
+                        .HasColumnType("numeric(5,1)")
+                        .HasColumnName("height_cm");
 
                     b.Property<bool>("HiddenByAdmin")
                         .HasColumnType("boolean")
@@ -1340,11 +1350,30 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
 
+                    b.Property<string>("VariantGroup")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("variant_group");
+
+                    b.Property<string>("VariantLabel")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("variant_label");
+
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
+
+                    b.Property<int?>("WallKind")
+                        .HasColumnType("integer")
+                        .HasColumnName("wall_kind");
+
+                    b.Property<decimal?>("WidthCm")
+                        .HasPrecision(5, 1)
+                        .HasColumnType("numeric(5,1)")
+                        .HasColumnName("width_cm");
 
                     b.HasKey("Id")
                         .HasName("pk_products");
@@ -1352,8 +1381,14 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.HasIndex("PageId", "CreatedAt")
                         .HasDatabaseName("ix_products_page_id_created_at");
 
+                    b.HasIndex("PageId", "VariantGroup")
+                        .HasDatabaseName("ix_products_page_id_variant_group")
+                        .HasFilter("variant_group IS NOT NULL");
+
                     b.ToTable("products", null, t =>
                         {
+                            t.HasCheckConstraint("ck_products_size", "(width_cm IS NULL) = (height_cm IS NULL) AND (width_cm IS NULL OR (width_cm BETWEEN 1 AND 1000 AND height_cm BETWEEN 1 AND 1000)) AND (depth_cm IS NULL OR (width_cm IS NOT NULL AND depth_cm BETWEEN 1 AND 1000)) AND (wall_kind IS NULL OR width_cm IS NOT NULL)");
+
                             t.HasCheckConstraint("ck_products_stock", "stock >= 0");
                         });
                 });
