@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0F1E3D">
+<title>دوّرلي · توصيل الطلب</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<style>
+  :root {
+    --navy: #0F1E3D; --blue: #1F4E9C; --blue-light: #3B6FE0; --gold: #E8B02E; --gold-soft: #F5C95A;
+    --turquoise: #14B8A6; --cream: #FAF7F0; --ink: #0F1E3D; --muted: #64708A; --line: #E7E2D6; --danger: #D64545;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--cream); color: var(--ink); font-family: "IBM Plex Sans Arabic", system-ui, sans-serif; }
+  body { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
+  header { background: var(--navy); color: #fff; padding: calc(14px + env(safe-area-inset-top)) 18px 46px; }
+  .brand { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 18px; }
+  .brand .dot { color: var(--gold); }
+  .order-no { margin-top: 14px; font-size: 13px; opacity: .75; }
+  .page-name { font-size: 22px; font-weight: 700; margin-top: 2px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,.12); }
+  .chip.live { background: rgba(20,184,166,.18); color: #7FF0E2; }
+  .chip .pulse { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .chip.live .pulse { animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(20,184,166,.7); } 70% { box-shadow: 0 0 0 8px rgba(20,184,166,0); } 100% { box-shadow: 0 0 0 0 rgba(20,184,166,0); } }
+  main { max-width: 560px; margin: -32px auto 0; padding: 0 14px; display: grid; gap: 12px; }
+  .card { background: #fff; border-radius: 18px; padding: 16px; box-shadow: 0 6px 24px rgba(15,30,61,.07); border: 1px solid #EFEAE0; }
+  .card h3 { margin: 0 0 10px; font-size: 14px; color: var(--muted); font-weight: 600; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .avatar { width: 44px; height: 44px; border-radius: 14px; background: #EAF0FC; color: var(--blue); display: grid; place-items: center; font-weight: 700; font-size: 18px; flex: none; }
+  .grow { flex: 1; min-width: 0; }
+  .name { font-weight: 700; font-size: 16px; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; direction: ltr; text-align: right; }
+  .btn { appearance: none; border: 0; border-radius: 14px; font: inherit; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-decoration: none; }
+  .btn-call { background: var(--turquoise); color: #fff; padding: 11px 14px; font-size: 14px; }
+  .btn-call.alt { background: #EAF0FC; color: var(--blue); }
+  .calls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .addr { font-size: 15px; line-height: 1.7; font-weight: 500; }
+  .note { margin-top: 8px; background: #FFF7E2; border-radius: 12px; padding: 8px 10px; font-size: 13px; color: #7A5A0B; }
+  #map { height: 220px; border-radius: 14px; margin-top: 12px; overflow: hidden; background: #E9EEF6; }
+  .btn-maps { margin-top: 10px; width: 100%; background: var(--blue); color: #fff; padding: 12px; font-size: 14px; }
+  .items { list-style: none; margin: 0; padding: 0; }
+  .items li { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
+  .items li:last-child { border-bottom: 0; }
+  .qty { color: var(--muted); font-weight: 600; }
+  .collect { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; background: var(--navy); color: #fff; border-radius: 14px; padding: 12px 14px; }
+  .collect b { color: var(--gold-soft); font-size: 18px; }
+  .dock { position: fixed; inset: auto 0 0 0; background: rgba(250,247,240,.96); backdrop-filter: blur(8px); border-top: 1px solid var(--line); padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); }
+  .dock-inner { max-width: 560px; margin: 0 auto; display: grid; gap: 8px; }
+  .btn-start { background: var(--gold); color: var(--navy); font-size: 19px; padding: 17px; width: 100%; box-shadow: 0 8px 20px rgba(232,176,46,.35); }
+  .btn-start:disabled { opacity: .6; }
+  .btn-stop { background: #fff; color: var(--danger); border: 1.5px solid #F1C9C9; font-size: 15px; padding: 12px; width: 100%; }
+  .status { font-size: 13px; color: var(--muted); text-align: center; min-height: 18px; }
+  .status.ok { color: #0E8A7C; font-weight: 600; }
+  .status.err { color: var(--danger); font-weight: 600; }
+  .hidden { display: none !important; }
+  .full { min-height: 100vh; display: grid; place-items: center; padding: 24px; text-align: center; }
+  .full .icon { width: 72px; height: 72px; border-radius: 22px; background: #fff; display: grid; place-items: center; margin: 0 auto 14px; font-size: 34px; box-shadow: 0 6px 24px rgba(15,30,61,.08); }
+  .full h2 { margin: 0 0 6px; font-size: 20px; }
+  .full p { margin: 0; color: var(--muted); line-height: 1.8; }
+  .skeleton { height: 90px; border-radius: 18px; background: linear-gradient(90deg, #fff, #F3EFE6, #fff); background-size: 200% 100%; animation: sk 1.2s infinite; }
+  @keyframes sk { to { background-position: -200% 0; } }
+  .courier-dot { width: 18px; height: 18px; border-radius: 50%; background: var(--turquoise); border: 3px solid #fff; box-shadow: 0 0 0 4px rgba(20,184,166,.3); }
+  .pin-dot { width: 22px; height: 22px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); background: var(--gold); border: 3px solid var(--navy); }
+</style>
+</head>
+<body>
+<div id="loading">
+  <header><div class="brand"><span>دوّرلي<span class="dot">.</span></span></div><div class="page-name">&nbsp;</div></header>
+  <main><div class="skeleton"></div><div class="skeleton"></div></main>
+</div>
+
+<div id="invalid" class="full hidden">
+  <div>
+    <div class="icon">🔒</div>
+    <h2>الرابط منتهي أو غير صالح</h2>
+    <p>هذا الرابط يشتغل بس وقت الطلب بالطريق.<br>إذا تبدّل المندوب أو انطلب رابط جديد، أو الطلب توصّل أو انلغى، الرابط القديم يوكف.<br>اطلب رابط جديد من الصفحة.</p>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <div class="brand"><span>دوّرلي<span class="dot">.</span></span><span id="liveChip" class="chip"><span class="pulse"></span><span id="liveText">التتبع موكوف</span></span></div>
+    <div class="order-no">طلب <span id="orderNo"></span> · المندوب <span id="courierName"></span></div>
+    <div class="page-name" id="pageName"></div>
+  </header>
+  <main>
+    <section class="card">
+      <h3>الزبون</h3>
+      <div class="row">
+        <div class="avatar" id="custInitial">ز</div>
+        <div class="grow"><div class="name" id="custName">الزبون</div><div class="sub" id="custPhone"></div></div>
+      </div>
+      <div class="calls">
+        <a id="callCustomer" class="btn btn-call" href="#">📞 اتصل بالزبون</a>
+        <a id="callPage" class="btn btn-call alt" href="#">☎️ اتصل بالصفحة</a>
+      </div>
+    </section>
+
+    <section class="card">
+      <h3>عنوان التوصيل</h3>
+      <div class="addr" id="address"></div>
+      <div class="note hidden" id="pinNote"></div>
+      <div class="note hidden" id="orderNote"></div>
+      <div id="map" class="hidden"></div>
+      <a id="mapsLink" class="btn btn-maps hidden" target="_blank" rel="noopener noreferrer">🧭 افتح الطريق بخرائط Google</a>
+    </section>
+
+    <section class="card">
+      <h3>محتوى الطلب</h3>
+      <ul class="items" id="items"></ul>
+      <div class="collect" id="collectBox"><span id="collectLabel">المبلغ المطلوب من الزبون</span><b id="collect"></b></div>
+    </section>
+  </main>
+
+  <div class="dock">
+    <div class="dock-inner">
+      <div class="status" id="status">دوس «ابدأ التوصيل» حتى الزبون يشوفك على الخريطة</div>
+      <button class="btn btn-start" id="startBtn">🚚 ابدأ التوصيل</button>
+      <button class="btn btn-stop hidden" id="stopBtn">إيقاف مشاركة الموقع</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+(function () {
+  "use strict";
+  var token = decodeURIComponent((location.pathname.match(/\/c\/([^\/?#]+)/) || [])[1] || "");
+  var api = "/api/v1/track/" + encodeURIComponent(token);
+  var $ = function (id) { return document.getElementById(id); };
+  var MIN_GAP = 5000, MAX_GAP = 10000, MIN_MOVE = 25;
+  var watchId = null, sharing = false, last = null, lastSent = null, lastSentAt = 0, sending = false, timer = null, ticker = null, wakeLock = null;
+  var map = null, courierMarker = null, pin = null;
+
+  function show(id) { ["loading", "invalid", "app"].forEach(function (x) { $(x).classList.toggle("hidden", x !== id); }); }
+  function money(n) { return Number(n || 0).toLocaleString("en-US") + " د.ع"; }
+  function setStatus(text, kind) { var s = $("status"); s.textContent = text; s.className = "status" + (kind ? " " + kind : ""); }
+
+  function request(method, path, body) {
+    return fetch(api + (path || ""), {
+      method: method, cache: "no-store", credentials: "omit", referrerPolicy: "no-referrer",
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (r) {
+      if (r.status === 404) { stopWatching(); show("invalid"); throw { gone: true }; }
+      if (r.status === 429) throw { busy: true };
+      if (!r.ok) throw { status: r.status };
+      return r.status === 204 ? null : r.json();
+    });
+  }
+
+  function render(o) {
+    $("orderNo").textContent = o.no;
+    $("courierName").textContent = o.courierName || "";
+    $("pageName").textContent = o.pageName;
+    $("custName").textContent = o.customerName || "الزبون";
+    $("custInitial").textContent = (o.customerName || "ز").trim().charAt(0);
+    $("custPhone").textContent = o.customerPhone || "";
+    if (o.customerPhone) $("callCustomer").href = "tel:" + o.customerPhone; else $("callCustomer").classList.add("hidden");
+    if (o.pagePhone) $("callPage").href = "tel:" + o.pagePhone; else $("callPage").classList.add("hidden");
+    $("address").textContent = o.address;
+    if (o.note) { $("orderNote").textContent = "ملاحظة الطلب: " + o.note; $("orderNote").classList.remove("hidden"); }
+    var items = $("items"); items.innerHTML = "";
+    (o.items || []).forEach(function (i) {
+      var li = document.createElement("li");
+      var n = document.createElement("span"); n.textContent = i.name;
+      var q = document.createElement("span"); q.className = "qty"; q.textContent = "× " + i.quantity;
+      li.appendChild(n); li.appendChild(q); items.appendChild(li);
+    });
+    if (o.collectAmount > 0) $("collect").textContent = money(o.collectAmount);
+    else { $("collectLabel").textContent = "مدفوع مسبقاً"; $("collect").textContent = "لا تستلم مبلغ"; }
+    if (o.location) {
+      pin = [o.location.latitude, o.location.longitude];
+      if (o.location.note) { $("pinNote").textContent = "📍 " + o.location.note; $("pinNote").classList.remove("hidden"); }
+      var link = $("mapsLink");
+      link.href = "https://www.google.com/maps/dir/?api=1&destination=" + pin[0] + "," + pin[1] + "&travelmode=driving";
+      link.classList.remove("hidden");
+      $("map").classList.remove("hidden");
+      if (window.L) {
+        map = L.map("map", { zoomControl: false, attributionControl: true }).setView(pin, 15);
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(map);
+        L.marker(pin, { icon: L.divIcon({ className: "", html: '<div class="pin-dot"></div>', iconSize: [22, 22], iconAnchor: [11, 22] }) }).addTo(map);
+      }
+    }
+    if (o.sharing) setLive(true, o.lastSentAt ? Date.parse(o.lastSentAt) : 0);
+  }
+
+  function setLive(on, sentAt) {
+    sharing = on;
+    $("liveChip").classList.toggle("live", on);
+    $("liveText").textContent = on ? "التتبع شغّال" : "التتبع موكوف";
+    $("startBtn").classList.toggle("hidden", on);
+    $("stopBtn").classList.toggle("hidden", !on);
+    if (on) {
+      if (sentAt) lastSentAt = sentAt;
+      startWatching();
+      clearInterval(ticker); ticker = setInterval(tick, 1000); tick();
+    } else {
+      clearInterval(ticker);
+    }
+  }
+
+  function tick() {
+    if (!sharing) return;
+    if (!lastSentAt) { setStatus("ديحدد موقعك…", "ok"); return; }
+    var s = Math.max(0, Math.round((Date.now() - lastSentAt) / 1000));
+    setStatus("الزبون يشوفك على الخريطة · آخر إرسال قبل " + s + " ثانية", "ok");
+  }
+
+  function meters(a, b) {
+    var R = 6371000, r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLng = (b.lng - a.lng) * r;
+    var x = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
+  }
+
+  function maybeSend(force) {
+    if (!sharing || !last || sending) return;
+    var gap = Date.now() - lastSentAt;
+    var moved = lastSent ? meters(lastSent, last) : Infinity;
+    if (!force && !(gap >= MAX_GAP || (gap >= MIN_GAP && moved >= MIN_MOVE))) return;
+    sending = true;
+    var p = last;
+    request("POST", "/location", { lat: p.lat, lng: p.lng, accuracy: p.accuracy, heading: p.heading, speed: p.speed })
+      .then(function () { lastSent = p; lastSentAt = Date.now(); tick(); })
+      .catch(function (e) { if (!e || !e.gone) setStatus(e && e.busy ? "الإرسال كثير، راح نكمل بعد شوية" : "ما وصل آخر موقع، راح نعيد المحاولة", "err"); })
+      .then(function () { sending = false; });
+  }
+
+  function onPosition(pos) {
+    var c = pos.coords;
+    last = { lat: c.latitude, lng: c.longitude, accuracy: c.accuracy != null ? Math.min(c.accuracy, 100000) : null,
+      heading: c.heading != null && !isNaN(c.heading) ? c.heading : null, speed: c.speed != null && !isNaN(c.speed) ? Math.max(0, c.speed) : null };
+    if (map && window.L) {
+      var ll = [last.lat, last.lng];
+      if (!courierMarker) {
+        courierMarker = L.marker(ll, { icon: L.divIcon({ className: "", html: '<div class="courier-dot"></div>', iconSize: [18, 18], iconAnchor: [9, 9] }) }).addTo(map);
+        if (pin) map.fitBounds([ll, pin], { padding: [30, 30], maxZoom: 16 });
+      } else courierMarker.setLatLng(ll);
+    }
+    maybeSend(!lastSent);
+  }
+
+  function onGeoError(err) {
+    if (err.code === 1) {
+      stopWatching();
+      setLive(false);
+      setStatus("ما سمحت بالموقع. افتح إعدادات المتصفح ← الموقع ← اسمح لهذا الموقع، وبعدين دوس «ابدأ التوصيل» مرة ثانية", "err");
+      request("POST", "/stop").catch(function () {});
+    } else if (err.code === 3) setStatus("الموقع دياخذ وقت… تأكد إن الـ GPS شغّال", "err");
+    else setStatus("ما كدرنا نحدد موقعك، تأكد إن الـ GPS شغّال", "err");
+  }
+
+  function startWatching() {
+    if (watchId !== null) return;
+    if (!("geolocation" in navigator)) { setStatus("هذا المتصفح ما يدعم تحديد الموقع، جرّب Chrome أو Safari", "err"); return; }
+    watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+    clearInterval(timer); timer = setInterval(function () { maybeSend(false); }, 2000);
+    keepAwake();
+  }
+
+  function stopWatching() {
+    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    watchId = null; clearInterval(timer); clearInterval(ticker);
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+  }
+
+  function keepAwake() {
+    if (!("wakeLock" in navigator) || wakeLock) return;
+    navigator.wakeLock.request("screen").then(function (l) { wakeLock = l; l.addEventListener("release", function () { wakeLock = null; }); }).catch(function () {});
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && sharing) { keepAwake(); maybeSend(true); }
+  });
+
+  $("startBtn").addEventListener("click", function () {
+    var b = $("startBtn"); b.disabled = true;
+    setStatus("ديحدد موقعك… إذا طلب المتصفح الإذن دوس «سماح»", "ok");
+    request("POST", "/start").then(function () { lastSent = null; lastSentAt = 0; setLive(true); })
+      .catch(function (e) { if (!e || !e.gone) setStatus("ما اشتغل التتبع، تأكد من الإنترنت وجرّب مرة ثانية", "err"); })
+      .then(function () { b.disabled = false; });
+  });
+
+  $("stopBtn").addEventListener("click", function () {
+    stopWatching();
+    request("POST", "/stop").then(function () { setLive(false); lastSent = null; lastSentAt = 0; setStatus("وقفت مشاركة موقعك. تكدر ترجع تبديها بأي وقت"); })
+      .catch(function () { setStatus("ما وصل الإيقاف، جرّب مرة ثانية", "err"); });
+  });
+
+  if (!token) { show("invalid"); return; }
+  request("GET").then(function (o) { show("app"); render(o); if (map) setTimeout(function () { map.invalidateSize(); }, 50); })
+    .catch(function (e) { if (!e || !e.gone) { show("invalid"); $("invalid").querySelector("h2").textContent = "ما كدرنا نفتح الطلب"; $("invalid").querySelector("p").textContent = "تأكد من الإنترنت وحدّث الصفحة."; } });
+})();
+</script>
+</body>
+</html>

@@ -427,6 +427,84 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                     b.ToTable("couriers", (string)null);
                 });
 
+            modelBuilder.Entity("Dawwerli.Domain.Entities.CourierTracking", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<double?>("Accuracy")
+                        .HasColumnType("double precision")
+                        .HasColumnName("accuracy");
+
+                    b.Property<Guid?>("CourierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("courier_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<double?>("Heading")
+                        .HasColumnType("double precision")
+                        .HasColumnName("heading");
+
+                    b.Property<double?>("Latitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("latitude");
+
+                    b.Property<DateTime?>("LocationAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("location_at");
+
+                    b.Property<double?>("Longitude")
+                        .HasColumnType("double precision")
+                        .HasColumnName("longitude");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<double?>("Speed")
+                        .HasColumnType("double precision")
+                        .HasColumnName("speed");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<DateTime?>("StoppedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("stopped_at");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("token");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id")
+                        .HasName("pk_courier_trackings");
+
+                    b.HasIndex("Token")
+                        .IsUnique()
+                        .HasDatabaseName("ix_courier_trackings_token");
+
+                    b.HasIndex("OrderId", "RevokedAt")
+                        .HasDatabaseName("ix_courier_trackings_order_id_revoked_at");
+
+                    b.ToTable("courier_trackings", (string)null);
+                });
+
             modelBuilder.Entity("Dawwerli.Domain.Entities.Device", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2251,6 +2329,16 @@ namespace Dawwerli.Infrastructure.Persistence.Migrations
                         .HasConstraintName("fk_cart_items_products_product_id");
 
                     b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Dawwerli.Domain.Entities.CourierTracking", b =>
+                {
+                    b.HasOne("Dawwerli.Domain.Entities.StoreOrder", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_courier_trackings_store_orders_order_id");
                 });
 
             modelBuilder.Entity("Dawwerli.Domain.Entities.Offer", b =>

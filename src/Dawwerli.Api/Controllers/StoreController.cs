@@ -8,8 +8,12 @@ namespace Dawwerli.Api.Controllers;
 
 /// <summary>Customer app: a page's products, top-rated pages' products for home, one-page cart, checkout and store orders.</summary>
 [Route("api/v1"), Authorize(Roles = Roles.Customer)]
-public sealed class StoreController(StoreService store, DiscoveryService discover) : AppController
+public sealed class StoreController(StoreService store, DiscoveryService discover, CourierTrackingService tracking) : AppController
 {
+    /// <summary>Live courier position while the courier shares it ({active:false} otherwise). Distance/ETA are approximate.</summary>
+    [HttpGet("store/orders/{id:guid}/courier-location")]
+    public async Task<IActionResult> CourierLocation(Guid id, CancellationToken ct) => From(await tracking.ForCustomerAsync(id, ct));
+
     [AllowAnonymous, HttpGet("pages/{pageId:guid}/products")]
     public async Task<IActionResult> PageProducts(Guid pageId, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
         From(await store.PageProductsAsync(pageId, page, pageSize, ct));

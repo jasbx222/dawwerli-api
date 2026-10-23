@@ -32,6 +32,10 @@ public sealed class SellerPortalController(SellerPortalService portal) : AppCont
     [HttpGet("orders/{id:guid}")] public async Task<IActionResult> Order(Guid id, CancellationToken ct) => From(await portal.OrderAsync(id, ct));
     [HttpPost("orders/{id:guid}/status")] public async Task<IActionResult> Status(Guid id, SetOrderStatusDto dto, CancellationToken ct) => From(await portal.SetStatusAsync(id, dto, ct));
 
+    [HttpGet("orders/{id:guid}/courier-location")] public async Task<IActionResult> CourierLocation(Guid id, CancellationToken ct) => From(await portal.CourierLocationAsync(id, ct));
+    [HttpPost("orders/{id:guid}/tracking-link")] public async Task<IActionResult> RegenerateTrackingLink(Guid id, CancellationToken ct) => From(await portal.RegenerateLinkAsync(id, ct));
+    [HttpPost("orders/{id:guid}/courier")] public async Task<IActionResult> ReassignCourier(Guid id, AssignCourierDto dto, CancellationToken ct) => From(await portal.ReassignCourierAsync(id, dto, ct));
+
     /// <summary>The page's couriers; pass courierId when moving an order to outForDelivery.</summary>
     [HttpGet("couriers")] public async Task<IActionResult> Couriers(CancellationToken ct) => From(await portal.CouriersAsync(ct));
     [HttpPost("couriers")] public async Task<IActionResult> AddCourier(UpsertCourierDto dto, CancellationToken ct) => From(await portal.CreateCourierAsync(dto, ct));

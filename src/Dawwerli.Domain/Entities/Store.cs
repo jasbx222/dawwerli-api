@@ -150,3 +150,33 @@ public class SellerAccount : Entity
     public static string StampOf(string passwordHash) =>
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(passwordHash)))[..16];
 }
+
+/// <summary>
+/// Live-location link the page hands to the courier of one store order (no courier login). The token is 256 random bits,
+/// so it is stored as-is and looked up by its unique index. It only works while the order is out for delivery with the same
+/// courier; it is revoked when the order ends, the courier is changed or the page issues a new link.
+/// Only the latest position is kept and it is wiped when tracking ends.
+/// </summary>
+public class CourierTracking : Entity
+{
+    public Guid OrderId { get; set; }
+    public Guid? CourierId { get; set; }
+    public string Token { get; set; } = "";
+    public DateTime? RevokedAt { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? StoppedAt { get; set; }
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+    public double? Accuracy { get; set; }
+    public double? Heading { get; set; }
+    public double? Speed { get; set; }
+    public DateTime? LocationAt { get; set; }
+
+    public bool Sharing => RevokedAt == null && StartedAt != null && StoppedAt == null;
+
+    public void ClearLocation()
+    {
+        Latitude = Longitude = Accuracy = Heading = Speed = null;
+        LocationAt = null;
+    }
+}

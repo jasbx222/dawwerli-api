@@ -30,6 +30,7 @@ builder.Services.AddScoped<SellerActingPage>();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 builder.Services.AddScoped<ICurrentSeller, HttpCurrentSeller>();
 builder.Services.AddSingleton<IRealtime, SignalRRealtime>();
+builder.Services.AddScoped<ITrackingLinks, HttpTrackingLinks>();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<ValidationFilter>();
 builder.Services.AddControllers(o => o.Filters.AddService<ValidationFilter>());
@@ -72,6 +73,11 @@ builder.Services.AddRateLimiter(o =>
     var otpPerMinute = PositiveLimit("OtpPerMinute", 10);
     var adminLoginPerMinute = PositiveLimit("AdminLoginPerMinute", 5);
     var globalPerMinute = PositiveLimit("GlobalPerMinute", 300);
+    var trackPerMinute = PositiveLimit("TrackPerMinute", 40);
+    // Courier links: per token (and caller IP), so one leaked or looping link cannot flood the API.
+    o.AddPolicy(RateLimitPolicies.Track, ctx => RateLimitPartition.GetFixedWindowLimiter(
+        $"{ctx.Request.RouteValues["token"]}|{ctx.Connection.RemoteIpAddress}",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = trackPerMinute, Window = TimeSpan.FromMinutes(1) }));
     o.AddPolicy(RateLimitPolicies.Otp, ctx => RateLimitPartition.GetFixedWindowLimiter(
         ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = otpPerMinute, Window = TimeSpan.FromMinutes(1) }));
@@ -131,6 +137,16 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" })).AllowAnonymous();
 var sellerIndex = Path.Combine(app.Environment.WebRootPath ?? Path.Combine(app.Environment.ContentRootPath, "wwwroot"), "seller", "index.html");
 IResult SellerHtml() => File.Exists(sellerIndex) ? Results.File(sellerIndex, "text/html; charset=utf-8") : Results.NotFound();
 app.MapGet("/seller", SellerHtml);
+// Courier tracking page (the token is read by the page's script from the URL).
+var courierPage = Path.Combine(app.Environment.ContentRootPath, "Courier", "index.html");
+app.MapGet("/c/{token}", (HttpContext ctx) =>
+{
+    if (!File.Exists(courierPage)) return Results.NotFound();
+    ctx.Response.Headers.CacheControl = "no-store";
+    ctx.Response.Headers["Referrer-Policy"] = "no-referrer";
+    ctx.Response.Headers["X-Robots-Tag"] = "noindex";
+    return Results.File(courierPage, "text/html; charset=utf-8");
+}).AllowAnonymous().RequireRateLimiting(RateLimitPolicies.Track);
 app.MapFallback("/seller/{*path:nonfile}", SellerHtml);
 
 if (config.GetValue("Database:MigrateAndSeedOnStartup", true))
@@ -145,6 +161,7 @@ public static class RateLimitPolicies
 {
     public const string Otp = "otp";
     public const string AdminLogin = "admin-login";
+    public const string Track = "track";
 }
 
 public partial class Program;

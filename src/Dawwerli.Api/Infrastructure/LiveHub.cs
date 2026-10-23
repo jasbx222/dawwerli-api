@@ -32,4 +32,19 @@ public sealed class SignalRRealtime(IHubContext<LiveHub> hub) : IRealtime
 
     public Task PageInboxChangedAsync(Guid pageId, CancellationToken ct = default) =>
         hub.Clients.Group($"page:{pageId}").SendAsync("inbox", pageId, ct);
+
+    public Task CourierMovedAsync(Guid orderId, object location, CancellationToken ct = default) =>
+        hub.Clients.Group($"order:{orderId}").SendAsync("courierMoved", orderId, location, ct);
+}
+
+/// <summary>Courier links on Tracking:PublicBaseUrl, or on the host the request came in on.</summary>
+public sealed class HttpTrackingLinks(IHttpContextAccessor http, IConfiguration config) : ITrackingLinks
+{
+    public string Url(string token)
+    {
+        var configured = config["Tracking:PublicBaseUrl"];
+        var root = !string.IsNullOrWhiteSpace(configured) ? configured.TrimEnd('/')
+            : http.HttpContext is { } c ? $"{c.Request.Scheme}://{c.Request.Host}{c.Request.PathBase}" : "";
+        return $"{root}/c/{token}";
+    }
 }

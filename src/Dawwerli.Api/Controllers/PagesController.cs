@@ -57,6 +57,16 @@ public sealed class PagesController(PageService pages, OfferService offers, Orde
     public async Task<IActionResult> StoreOrderStatus(Guid id, SetOrderStatusDto dto, CancellationToken ct) =>
         From(await storeOrders.SetStatusAsync(id, dto, ct));
 
+    [HttpGet("pages/me/store-orders/{id:guid}/courier-location")]
+    public async Task<IActionResult> CourierLocation(Guid id, CancellationToken ct) => From(await storeOrders.CourierLocationAsync(id, ct));
+
+    /// <summary>Issues a new courier tracking link; the previous one stops working.</summary>
+    [HttpPost("pages/me/store-orders/{id:guid}/tracking-link")]
+    public async Task<IActionResult> RegenerateTrackingLink(Guid id, CancellationToken ct) => From(await storeOrders.RegenerateLinkAsync(id, ct));
+
+    [HttpPost("pages/me/store-orders/{id:guid}/courier")]
+    public async Task<IActionResult> ReassignCourier(Guid id, AssignCourierDto dto, CancellationToken ct) => From(await storeOrders.ReassignCourierAsync(id, dto, ct));
+
     [HttpGet("pages/me/couriers")]
     public async Task<IActionResult> Couriers(CancellationToken ct) => From(await couriers.ListAsync(ct));
 
