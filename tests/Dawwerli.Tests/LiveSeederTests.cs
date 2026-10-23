@@ -436,4 +436,84 @@ public class LiveSeederTests(LiveSeedApiFactory factory) : IClassFixture<LiveSee
         }
         Assert.Equal(0, await seeder.CountRealUsersAsync());
     }
+
+    [Fact]
+    public void Every_category_override_names_a_real_template_and_category()
+    {
+        var templates = LiveSeedData.Kits.SelectMany(k => k.Products).Select(t => t.Name).ToHashSet();
+        Assert.Empty(LiveSeedCategories.ByTemplate.Keys.Where(n => !templates.Contains(n)));
+        var slugs = LiveSeedData.Kits.Select(k => k.Slug).ToHashSet();
+        Assert.Empty(LiveSeedCategories.ByTemplate.Values.Where(s => !slugs.Contains(s) && s is not ("electronics" or "furniture" or "appliances" or "gaming" or "beauty" or "flowers" or "home")));
+        Assert.Equal("ثلاجة 14 قدم نوفروست", LiveSeedCategories.AnyTemplateOf("ثلاجة 14 قدم نوفروست مستعمل")?.Name);
+        Assert.Null(LiveSeedCategories.AnyTemplateOf("منتج غير موجود"));
+    }
+
+    [Fact]
+    public async Task Seeded_products_carry_their_own_category_not_the_page_kit()
+    {
+        var (scope, db, _, _) = await OpenAsync();
+        await using var __ = scope;
+        var slugById = await db.Categories.ToDictionaryAsync(c => c.Id, c => c.Slug);
+        var rows = await db.Products.AsNoTracking().Select(p => new { p.Name, p.CategoryId }).ToListAsync();
+        Assert.All(rows, r => Assert.True(slugById.ContainsKey(r.CategoryId), r.Name));
+        string SlugOf(string prefix) => slugById[rows.First(r => r.Name.StartsWith(prefix)).CategoryId];
+        Assert.Equal("electronics", SlugOf("ايربودز برو الجيل الثاني"));
+        Assert.Equal("phones", SlugOf("آيفون 15 برو ماكس"));
+        Assert.Equal("electronics", SlugOf("شاشة سمارت 4K"));
+        // Every product of a template that has an override is in that category, whichever kit's page lists it.
+        foreach (var r in rows)
+            if (LiveSeedCategories.AnyTemplateOf(r.Name) is { } t && LiveSeedCategories.ByTemplate.TryGetValue(t.Name, out var want))
+                Assert.Equal(want, slugById[r.CategoryId]);
+    }
+
+    [Fact]
+    public async Task Category_backfill_moves_only_seeded_products_and_is_idempotent()
+    {
+        var (scope, db, seeder, _) = await OpenAsync();
+        await using var __ = scope;
+        var expected = await db.Products.AsNoTracking().ToDictionaryAsync(p => p.Id, p => p.CategoryId);
+        var counts = (pages: await db.Pages.CountAsync(), orders: await db.StoreOrders.CountAsync());
+        var phones = scope.ServiceProvider.GetRequiredService<IPhoneProtector>();
+        var real = new User { Id = Guid.NewGuid(), Role = UserRole.Page, PhoneHash = phones.Hash("07712345603"), PhoneEncrypted = phones.Encrypt("07712345603"), Name = "صاحب صفحة حقيقي" };
+        db.Users.Add(real);
+        await db.SaveChangesAsync();
+        // Simulate a server seeded before the fix: overridden templates sit in a kit category (phones here).
+        var phonesId = await db.Categories.Where(c => c.Slug == "phones").Select(c => c.Id).SingleAsync();
+        var names = await db.Products.AsNoTracking().Select(p => new { p.Id, p.Name }).ToListAsync();
+        var overridden = names.Where(p => LiveSeedCategories.AnyTemplateOf(p.Name) is { } t && LiveSeedCategories.ByTemplate.ContainsKey(t.Name))
+            .Select(p => p.Id).ToList();
+        var page = await db.Pages.OrderBy(p => p.CreatedAt).Skip(2).FirstAsync();
+        var seededOwner = page.UserId;
+        page.UserId = real.Id;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        try
+        {
+            await db.Products.Where(p => overridden.Contains(p.Id)).ExecuteUpdateAsync(s => s.SetProperty(p => p.CategoryId, phonesId));
+            var stale = await db.Products.AsNoTracking().ToDictionaryAsync(p => p.Id, p => (p.PageId, p.CategoryId));
+            var misplaced = stale.Count(kv => kv.Value.CategoryId != expected[kv.Key]);
+            var mineMisplaced = stale.Count(kv => kv.Value.PageId == page.Id && kv.Value.CategoryId != expected[kv.Key]);
+            Assert.True(misplaced > 0 && mineMisplaced > 0);
+
+            var report = await seeder.BackfillCategoriesAsync();
+            Assert.False(report.Skipped);
+            Assert.Equal(misplaced - mineMisplaced, report.Created.Single(kv => kv.Key == "products_recategorized").Value);
+            var after = await db.Products.AsNoTracking().ToDictionaryAsync(p => p.Id, p => (p.PageId, p.CategoryId));
+            Assert.Equal(expected.Keys.Order(), after.Keys.Order());
+            Assert.All(after.Where(kv => kv.Value.PageId != page.Id), kv => Assert.Equal(expected[kv.Key], kv.Value.CategoryId));
+            Assert.All(after.Where(kv => kv.Value.PageId == page.Id), kv => Assert.Equal(stale[kv.Key].CategoryId, kv.Value.CategoryId));
+            Assert.Equal(counts, (await db.Pages.CountAsync(), await db.StoreOrders.CountAsync()));
+            Assert.True(await seeder.MarkerExistsAsync());
+
+            var again = await seeder.BackfillCategoriesAsync();
+            Assert.Equal(0, again.Created.Single().Value);
+        }
+        finally
+        {
+            await db.Pages.Where(p => p.Id == page.Id).ExecuteUpdateAsync(s => s.SetProperty(p => p.UserId, seededOwner));
+            await db.Users.Where(u => u.Id == real.Id).ExecuteDeleteAsync();
+            await seeder.BackfillCategoriesAsync();
+        }
+        Assert.Equal(expected, await db.Products.AsNoTracking().ToDictionaryAsync(p => p.Id, p => p.CategoryId));
+    }
 }

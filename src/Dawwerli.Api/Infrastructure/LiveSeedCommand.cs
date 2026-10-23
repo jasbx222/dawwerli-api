@@ -6,8 +6,8 @@ using Npgsql;
 namespace Dawwerli.Api.Infrastructure;
 
 /// <summary>
-/// <c>dotnet Dawwerli.Api.dll seed-live [--wipe [--include-real-users]] [--backfill-dimensions] [--confirm] [--dry-run] [--seed 42] [counts]</c>:
-/// wipes seeded data and seeds live-looking data (or only adds sizes to the seeded products), then exits without starting the web host.
+/// <c>dotnet Dawwerli.Api.dll seed-live [--wipe [--include-real-users]] [--backfill-dimensions] [--backfill-categories] [--confirm] [--dry-run] [--seed 42] [counts]</c>:
+/// wipes seeded data and seeds live-looking data (or only adds sizes / fixes categories of the seeded products), then exits without starting the web host.
 /// </summary>
 public static class LiveSeedCommand
 {
@@ -29,7 +29,7 @@ public static class LiveSeedCommand
     };
 
     private const string Usage = """
-        Usage: dotnet Dawwerli.Api.dll seed-live [--wipe [--include-real-users]] [--backfill-dimensions] [--confirm] [--dry-run] [--seed 42]
+        Usage: dotnet Dawwerli.Api.dll seed-live [--wipe [--include-real-users]] [--backfill-dimensions] [--backfill-categories] [--confirm] [--dry-run] [--seed 42]
                  [--pages 500] [--product-pages 500] [--products-min 50] [--products-max 50] [--customers 50]
                  [--offers 50] [--store-orders 90] [--ads 50] [--featured-pages 8] [--history-days 180]
           --dry-run  read-only: print the target database, current counts and the plan
@@ -37,6 +37,8 @@ public static class LiveSeedCommand
                      real (non-seeded) users exist, unless --include-real-users is also given
           --include-real-users  with --wipe: delete real users and everything they own too
           --backfill-dimensions add width/height/depth (cm) to seeded products that have none; deletes nothing
+          --backfill-categories move seeded products to their template's category (earbuds on a phone shop ->
+                     electronics, a fridge on a home shop -> appliances); deletes nothing, safe to repeat
           --confirm  required for anything that writes
         Defaults come from the "Seed" configuration section. Seller-portal logins and the app phone + password
         login for every page owner are created only when Seed__SellerPassword is set in the environment.
@@ -48,7 +50,7 @@ public static class LiveSeedCommand
         await using var scope = services.CreateAsyncScope();
         var sp = scope.ServiceProvider;
         var o = sp.GetRequiredService<IOptions<LiveSeedOptions>>().Value.Copy();
-        bool wipe = false, confirm = false, dryRun = false, includeReal = false, backfill = false;
+        bool wipe = false, confirm = false, dryRun = false, includeReal = false, backfill = false, backfillCategories = false;
         for (var i = 0; i < args.Length; i++)
         {
             var a = args[i];
@@ -59,6 +61,7 @@ public static class LiveSeedCommand
                 case "--dry-run": dryRun = true; continue;
                 case "--include-real-users": includeReal = true; continue;
                 case "--backfill-dimensions": backfill = true; continue;
+                case "--backfill-categories": backfillCategories = true; continue;
                 case "-h" or "--help": Console.WriteLine(Usage); return 0;
             }
             if (Counts.TryGetValue(a, out var set) && i + 1 < args.Length && int.TryParse(args[i + 1], out var v)) { set(o, v); i++; continue; }
@@ -66,7 +69,7 @@ public static class LiveSeedCommand
             Console.Error.WriteLine(Usage);
             return 2;
         }
-        if (backfill && wipe) { Console.Error.WriteLine("--backfill-dimensions and --wipe do not go together: pick one."); return 2; }
+        if ((backfill || backfillCategories) && wipe) { Console.Error.WriteLine("--backfill-dimensions / --backfill-categories and --wipe do not go together: pick one."); return 2; }
         if (includeReal && !wipe) { Console.Error.WriteLine("--include-real-users only applies to --wipe."); return 2; }
         if (o.Validate() is { } bad) { Console.Error.WriteLine($"Invalid counts: {bad}"); return 2; }
 
@@ -76,7 +79,7 @@ public static class LiveSeedCommand
         var seeder = sp.GetRequiredService<LiveDataSeeder>();
         if (dryRun)
         {
-            Console.WriteLine($"Dry run (nothing is written). wipe={wipe} include_real_users={includeReal} backfill_dimensions={backfill}");
+            Console.WriteLine($"Dry run (nothing is written). wipe={wipe} include_real_users={includeReal} backfill_dimensions={backfill} backfill_categories={backfillCategories}");
             Console.WriteLine(await seeder.DescribeAsync(o));
             return 0;
         }
@@ -88,11 +91,20 @@ public static class LiveSeedCommand
 
         // Migrations + reference catalog + admin, without the demo scenario or the startup live seed.
         await sp.GetRequiredService<Seeder>().RunAsync(includeDemoData: false);
-        if (backfill)
+        if (backfill || backfillCategories)
         {
-            Console.WriteLine("Adding sizes to seeded products (nothing is deleted)...");
-            var b = await seeder.BackfillDimensionsAsync();
-            Console.WriteLine($"Done in {b.Elapsed.TotalSeconds:F1}s: sized {b.Created.Sum(kv => kv.Value)} products. Marker {LiveDataSeeder.MarkerName} written.");
+            if (backfillCategories)
+            {
+                Console.WriteLine("Moving seeded products to their template's category (nothing is deleted)...");
+                var c = await seeder.BackfillCategoriesAsync();
+                Console.WriteLine($"Done in {c.Elapsed.TotalSeconds:F1}s: recategorized {c.Created.Sum(kv => kv.Value)} products. Marker {LiveDataSeeder.MarkerName} written.");
+            }
+            if (backfill)
+            {
+                Console.WriteLine("Adding sizes to seeded products (nothing is deleted)...");
+                var b = await seeder.BackfillDimensionsAsync();
+                Console.WriteLine($"Done in {b.Elapsed.TotalSeconds:F1}s: sized {b.Created.Sum(kv => kv.Value)} products. Marker {LiveDataSeeder.MarkerName} written.");
+            }
             return 0;
         }
         Console.WriteLine(wipe ? "Wiping non-admin data and seeding..." : "Seeding (no wipe)...");

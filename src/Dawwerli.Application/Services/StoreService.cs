@@ -17,15 +17,79 @@ public sealed class StoreService(StoreKit kit, Shared s, IPaymentProvider paymen
 
     // ---------- browse ----------
 
-    public async Task<Result<PagedDto<ProductCardDto>>> PageProductsAsync(Guid pageId, int? pageNo, int? size, CancellationToken ct)
+    /// <summary>Search, filter and sort one active page's visible products (see <see cref="PageProductQuery"/>).</summary>
+    public async Task<Result<PagedDto<ProductCardDto>>> PageProductsAsync(Guid pageId, PageProductQuery query, CancellationToken ct)
     {
-        var page = await Db.Pages.FirstOrDefaultAsync(p => p.Id == pageId, ct);
-        if (page is null || !page.IsActive(s.Now)) return Error.NotFound("page");
-        var (p, n) = kit.Paging(pageNo, size);
+        var parsed = PageProductSearch.Parse(query);
+        if (parsed.Error is { } invalid) return invalid;
+        var f = parsed.Value!;
+        if (!await ActivePageAsync(pageId, ct)) return Error.NotFound("page");
+        var (p, n) = kit.Paging(query.Page, query.PageSize);
         var q = Visible.Where(x => x.PageId == pageId);
+        if (f.Term is { } term)
+        {
+            var pattern = "%" + PageProductSearch.EscapeLike(term) + "%";
+            q = q.Where(x => EF.Functions.Like(x.NormalizedName, pattern, PageProductSearch.LikeEscape));
+        }
+        if (f.CategoryIds.Count > 0)
+        {
+            var cats = f.CategoryIds;
+            q = q.Where(x => cats.Contains(x.CategoryId));
+        }
+        if (f.MinPrice is { } min) q = q.Where(x => x.Price >= min);
+        if (f.MaxPrice is { } max) q = q.Where(x => x.Price <= max);
+        if (f.InStock) q = q.Where(x => x.Stock > 0);
+
         var total = await q.CountAsync(ct);
-        var rows = await q.OrderByDescending(x => x.Stock > 0).ThenByDescending(x => x.CreatedAt).Skip((p - 1) * n).Take(n).ToListAsync(ct);
-        return new PagedDto<ProductCardDto>(rows.Select(kit.ToCard).ToList(), total, p, n);
+        if (total == 0 || (long)(p - 1) * n >= total) return new PagedDto<ProductCardDto>([], total, p, n);
+        List<Product> rows;
+        switch (f.Sort)
+        {
+            case PageProductSort.PriceAsc:
+                rows = await q.OrderBy(x => x.Price).ThenByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Skip((p - 1) * n).Take(n).ToListAsync(ct);
+                break;
+            case PageProductSort.PriceDesc:
+                rows = await q.OrderByDescending(x => x.Price).ThenByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Skip((p - 1) * n).Take(n).ToListAsync(ct);
+                break;
+            case PageProductSort.TopRated:
+                rows = await q.OrderByDescending(x => x.Rating).ThenByDescending(x => x.RatingCount).ThenByDescending(x => x.CreatedAt).ThenBy(x => x.Id)
+                    .Skip((p - 1) * n).Take(n).ToListAsync(ct);
+                break;
+            case PageProductSort.BestSelling:
+                var sold = Db.StoreOrders.Where(o => o.PageId == pageId && DiscoveryService.SoldStatuses.Contains(o.Status)).SelectMany(o => o.Items);
+                rows = await q.Select(x => new { P = x, Sold = sold.Where(i => i.ProductId == x.Id).Sum(i => (int?)i.Quantity) ?? 0 })
+                    .OrderByDescending(x => x.Sold).ThenByDescending(x => x.P.Rating).ThenByDescending(x => x.P.CreatedAt).ThenBy(x => x.P.Id)
+                    .Skip((p - 1) * n).Take(n).Select(x => x.P).ToListAsync(ct);
+                break;
+            default:
+                rows = await q.OrderByDescending(x => x.Stock > 0).ThenByDescending(x => x.CreatedAt).ThenBy(x => x.Id).Skip((p - 1) * n).Take(n).ToListAsync(ct);
+                break;
+        }
+        var ids = rows.Select(r => r.CategoryId).Distinct().ToList();
+        var names = await Db.Categories.AsNoTracking().Where(c => ids.Contains(c.Id)).ToDictionaryAsync(c => c.Id, c => c.Name, ct);
+        return new PagedDto<ProductCardDto>(rows.Select(r => kit.ToCard(r, names.GetValueOrDefault(r.CategoryId))).ToList(), total, p, n);
+    }
+
+    /// <summary>Filter options for the page's filter drawer: categories with counts, price range, totals. Visible products only.</summary>
+    public async Task<Result<PageProductFacetsDto>> PageProductFacetsAsync(Guid pageId, CancellationToken ct)
+    {
+        if (!await ActivePageAsync(pageId, ct)) return Error.NotFound("page");
+        var groups = await Visible.Where(x => x.PageId == pageId).GroupBy(x => x.CategoryId)
+            .Select(g => new { Id = g.Key, Count = g.Count(), InStock = g.Count(x => x.Stock > 0), Min = g.Min(x => x.Price), Max = g.Max(x => x.Price) })
+            .ToListAsync(ct);
+        if (groups.Count == 0) return new PageProductFacetsDto(0, 0, null, null, []);
+        var ids = groups.Select(g => g.Id).ToList();
+        var cats = await Db.Categories.AsNoTracking().Where(c => ids.Contains(c.Id)).ToDictionaryAsync(c => c.Id, ct);
+        var list = groups.Where(g => cats.ContainsKey(g.Id))
+            .OrderByDescending(g => g.Count).ThenBy(g => cats[g.Id].SortOrder).ThenBy(g => g.Id)
+            .Select(g => new PageProductCategoryDto(g.Id, cats[g.Id].Slug, cats[g.Id].Name, g.Count)).ToList();
+        return new PageProductFacetsDto(groups.Sum(g => g.Count), groups.Sum(g => g.InStock), groups.Min(g => g.Min), groups.Max(g => g.Max), list);
+    }
+
+    private async Task<bool> ActivePageAsync(Guid pageId, CancellationToken ct)
+    {
+        var page = await Db.Pages.AsNoTracking().FirstOrDefaultAsync(p => p.Id == pageId, ct);
+        return page is not null && page.IsActive(s.Now);
     }
 
     /// <summary>

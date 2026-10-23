@@ -135,6 +135,7 @@ Local run, default volume (25,000 products), `DOTNET_gcServer=0`:
 |---|---|---|---|
 | `--wipe --confirm` (wipe + reseed) | about 7 s | about 9 s | about 340 MB |
 | `--backfill-dimensions --confirm` | about 1 s | about 3 s | about 230 MB |
+| `--backfill-categories --confirm` | about 1 s | about 3 s | about 230 MB |
 | `--dry-run` | - | about 2 s | about 200 MB |
 
 With the default server GC the wipe + reseed peaks around 650 MB. On a small server set `DOTNET_gcServer=0` for the
@@ -177,7 +178,7 @@ re-seeds **once**, writes `live-seed-v3`, and skips from then on:
 - only seeded users in the database: full wipe + reseed. With the same `Seed__RandomSeed` and counts the products are the
   same as before (same ids, names, prices), now with sizes. Orders, follows, ads… are re-created as fresh seed data.
 - real (non-seeded) users present: nothing is deleted. The seeded products that have no size get one (same values as a
-  fresh v3 seed), and the log says `… real (non-seeded) users exist, so NOTHING is deleted. Adding sizes …`.
+  fresh v3 seed) and are moved to their template's category (see `--backfill-categories`), and the log says `… real (non-seeded) users exist, so NOTHING is deleted. Adding sizes …`.
 
 If you do not want either, make sure `Seed__Live` is not set. To only add sizes without restarting, use
 `seed-live --backfill-dimensions --confirm` (below).
@@ -192,6 +193,8 @@ The command exits without starting the web host. It uses the same configuration 
 dotnet Dawwerli.Api.dll seed-live --dry-run              # read only: prints host/db/user (never the password), current counts, plan
 dotnet Dawwerli.Api.dll seed-live --wipe --confirm       # wipe seeded data + seed (refused if real users exist)
 dotnet Dawwerli.Api.dll seed-live --backfill-dimensions --confirm   # only add sizes to seeded products; deletes nothing
+dotnet Dawwerli.Api.dll seed-live --backfill-categories --confirm   # only fix seeded products' categories; deletes nothing
+dotnet Dawwerli.Api.dll seed-live --backfill-categories --backfill-dimensions --confirm   # both
 dotnet Dawwerli.Api.dll seed-live --wipe --include-real-users --confirm   # wipe ALL non-admin data, real users included
 dotnet Dawwerli.Api.dll seed-live --wipe --confirm --seed 7 --pages 300 --customers 40 --ads 30
 DOTNET_gcServer=0 dotnet Dawwerli.Api.dll seed-live --wipe --confirm   # lower memory on a small server
@@ -203,6 +206,15 @@ Without `--wipe` it refuses when pages or the marker already exist. Without `--c
 (`0790002xxxx`); products of real sellers are left alone. Ids, orders, reviews, favourites and carts stay. It writes the
 `live-seed-v3` marker, so a later `Seed__Live=true` start skips. Run it again any time; products that already have a size
 are not changed.
+
+`--backfill-categories` fixes the category of seeded products made from a template that belongs to another category than
+its page's kit (`LiveSeedCategories`): earbuds and power banks on phone shops → electronics, TVs → electronics, fridges,
+washers and splits on home shops → appliances, sofas and beds → furniture, consoles on electronics shops → gaming, make-up
+on care shops → beauty, bouquets on gift shops → flowers, mirrors, frames, canvases and rugs → home. Older seeds put every
+product in its page's category, which made the page product filter useless. Same guard as above: only pages owned by
+seeded page users, ids and everything else stay, the marker is written, and a second run changes nothing. A fresh seed
+already uses the right categories. When real users exist, the startup path (`Seed__Live=true`, no marker) runs both
+backfills.
 
 Seeded users are recognised by hashing the fictional phones with `Security__PhoneHashKey`, so run the command with the same
 key the API uses (it reads the same environment).

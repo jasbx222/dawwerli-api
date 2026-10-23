@@ -18,7 +18,8 @@ public sealed class DiscoveryService(StoreKit kit, Shared s)
     private IAppDbContext Db => kit.Db;
     private Guid Me => s.Me.UserId;
 
-    private static readonly StoreOrderStatus[] SoldStatuses = [StoreOrderStatus.Accepted, StoreOrderStatus.OutForDelivery, StoreOrderStatus.Delivered];
+    /// <summary>Store orders whose units count as sold (best-selling rankings).</summary>
+    internal static readonly StoreOrderStatus[] SoldStatuses = [StoreOrderStatus.Accepted, StoreOrderStatus.OutForDelivery, StoreOrderStatus.Delivered];
 
     private IQueryable<Page> ActivePages
     {

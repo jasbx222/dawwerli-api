@@ -213,6 +213,7 @@ internal sealed class ProductConfig : IEntityTypeConfiguration<Product>
     {
         b.HasIndex(x => new { x.PageId, x.CreatedAt });
         b.Property(x => x.Name).HasMaxLength(120);
+        b.Property(x => x.NormalizedName).HasMaxLength(120).HasDefaultValue("");
         b.Property(x => x.Description).HasMaxLength(4000);
         b.Property(x => x.Version).IsRowVersion();
         b.Property(x => x.WidthCm).HasPrecision(5, 1);
