@@ -31,11 +31,13 @@ public sealed record MediaDto(string Key, string Url);
 public sealed record CreateRequestDto(string Mode, string? MediaKey, string? Description, int? VoiceSeconds, int CategoryId,
     string? Size, string? Color, string Condition, long MaxPrice, int GovernorateId, bool ReadyToBuy, Guid? PageId = null);
 public sealed record IdDto(Guid Id);
-public sealed record RequestSummaryDto(Guid Id, long Number, string Title, string? Image, string Status, int OffersCount, int MaxOffers, DateTime CreatedAt, Guid? OrderId);
+public sealed record RequestSummaryDto(Guid Id, long Number, string Title, string? Image, string Status, int OffersCount, int MaxOffers, DateTime CreatedAt, Guid? OrderId,
+    Guid? StoreOrderId = null);
 public sealed record AdBannerDto(Guid Id, Guid? PageId, string PageName, string Title, string Headline, int DiscountPercent, string? Image, string? DeepLink);
 public sealed record LiveRequestDto(Guid Id, string Title, string? Image, long MaxPrice, int ReachedPages, int SeenBy,
     IReadOnlyList<long> OfferPrices, int MaxOffers, DateTime ExpandsAt, DateTime ExpiresAt, string Status,
-    IReadOnlyList<string> WidenedTo, int WaitedMinutes, long? SuggestedPrice, AdBannerDto? Sponsored, string Governorate, Guid? OrderId);
+    IReadOnlyList<string> WidenedTo, int WaitedMinutes, long? SuggestedPrice, AdBannerDto? Sponsored, string Governorate, Guid? OrderId,
+    Guid? StoreOrderId = null);
 public sealed record RaisePriceDto(long MaxPrice);
 
 // ---- offers
@@ -53,7 +55,8 @@ public sealed record SubmitOfferDto(long Price, int DeliveryHours, string Condit
 public sealed record OrderStepDto(string Title, string Detail, bool Done);
 public sealed record RatingDto(int Stars, IReadOnlyList<string> Tags, string? Comment);
 public sealed record OrderDto(Guid Id, string OrderNo, Guid PageId, string PageName, string? PageImage, IReadOnlyList<OrderStepDto> Steps,
-    bool Received, string? Answer, RatingDto? Rating, string Status, IReadOnlyList<string> RatingTags, IReadOnlyList<string> LowRatingTags);
+    bool Received, string? Answer, RatingDto? Rating, string Status, IReadOnlyList<string> RatingTags, IReadOnlyList<string> LowRatingTags,
+    Guid? StoreOrderId = null);
 public sealed record DeliveryAnswerDto(string Answer);
 
 // ---- trust

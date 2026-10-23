@@ -80,8 +80,11 @@ public sealed class RequestService(Shared s, DispatchService dispatch, AdsServic
         var rows = await Db.Requests.Where(r => r.CustomerId == s.Me.UserId).OrderByDescending(r => r.CreatedAt).Take(100)
             .Select(r => new { r, OrderId = Db.Orders.Where(o => o.RequestId == r.Id && o.Status != OrderStatus.NoReply).Select(o => (Guid?)o.Id).FirstOrDefault() })
             .ToListAsync(ct);
+        var deals = rows.Where(x => x.OrderId != null).Select(x => x.OrderId!.Value).ToList();
+        var linked = await Db.StoreOrders.Where(o => o.OfferOrderId != null && deals.Contains(o.OfferOrderId.Value))
+            .ToDictionaryAsync(o => o.OfferOrderId!.Value, o => (Guid?)o.Id, ct);
         return rows.Select(x => new RequestSummaryDto(x.r.Id, x.r.Number, x.r.Title, s.Url(x.r.MediaKey), x.r.Status.Code(), x.r.OffersCount,
-            rules.MaxOffers, x.r.CreatedAt, x.OrderId)).ToList();
+            rules.MaxOffers, x.r.CreatedAt, x.OrderId, x.OrderId is { } d ? linked.GetValueOrDefault(d) : null)).ToList();
     }
 
     private async Task<Result<Request>> OwnAsync(Guid id, CancellationToken ct)
@@ -114,10 +117,12 @@ public sealed class RequestService(Shared s, DispatchService dispatch, AdsServic
             suggested = CatalogService.ParseSchema(cat.FieldSchema).PriceSuggestions.Where(p => p > r.MaxPrice).Cast<long?>().FirstOrDefault();
         }
         var orderId = await Db.Orders.Where(o => o.RequestId == r.Id && o.Status != OrderStatus.NoReply).Select(o => (Guid?)o.Id).FirstOrDefaultAsync(ct);
+        var storeOrderId = orderId is null ? null
+            : await Db.StoreOrders.Where(o => o.OfferOrderId == orderId).Select(o => (Guid?)o.Id).FirstOrDefaultAsync(ct);
         var gov = r.Governorate?.Name ?? await Db.Governorates.Where(g => g.Id == r.GovernorateId).Select(g => g.Name).FirstAsync(ct);
         return new LiveRequestDto(r.Id, r.Title, s.Url(r.MediaKey), r.MaxPrice, reached, seen, prices, rules.MaxOffers, r.ExpandsAt, r.ExpiresAt,
             r.Status.Code(), widened, (int)(s.Now - r.CreatedAt).TotalMinutes, suggested,
-            await ads.BannerAsync(r.GovernorateId, r.CategoryId, ct), gov, orderId);
+            await ads.BannerAsync(r.GovernorateId, r.CategoryId, ct), gov, orderId, storeOrderId);
     }
 
     public async Task<Result> CancelAsync(Guid id, CancellationToken ct)

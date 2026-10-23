@@ -125,6 +125,38 @@ public class OfferOrderTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task Every_view_of_a_chosen_offer_carries_its_store_order_id()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var d = await DealAsync(c, admin, Clothes);
+
+        // Customer: my requests, the request (live) view, the deal and the selection all point at the same store order.
+        var mine = await GetAsync(c, "/api/v1/requests/mine", d.Customer);
+        var row = mine.EnumerateArray().Single(r => r.GetProperty("id").GetString() == d.Request);
+        Assert.Equal(d.OrderId, row.GetProperty("orderId").GetString());
+        Assert.Equal(d.StoreOrderId, row.GetProperty("storeOrderId").GetString());
+        var live = await GetAsync(c, $"/api/v1/requests/{d.Request}", d.Customer);
+        Assert.Equal(d.StoreOrderId, live.GetProperty("storeOrderId").GetString());
+        var deal = await GetAsync(c, $"/api/v1/orders/{d.OrderId}", d.Customer);
+        Assert.Equal(d.StoreOrderId, deal.GetProperty("storeOrderId").GetString());
+        var selection = await GetAsync(c, $"/api/v1/requests/{d.Request}/selection", d.Customer);
+        Assert.Equal(d.StoreOrderId, selection.GetProperty("storeOrderId").GetString());
+
+        // Page: the chosen offer in its offers list.
+        var offers = await GetAsync(c, "/api/v1/pages/me/offers", d.Page);
+        var items = offers.ValueKind == JsonValueKind.Array ? offers : offers.GetProperty("items");
+        var mineOffer = items.EnumerateArray().Single(o => o.GetProperty("id").GetString() == d.Offer);
+        Assert.Equal(d.StoreOrderId, mineOffer.GetProperty("storeOrderId").GetString());
+
+        // A request with no chosen offer has no order to open.
+        var open = await Api.RequestAsync(c, d.Customer, Clothes, size: "L");
+        var openRow = (await GetAsync(c, "/api/v1/requests/mine", d.Customer)).EnumerateArray().Single(r => r.GetProperty("id").GetString() == open);
+        Assert.Equal(JsonValueKind.Null, openRow.GetProperty("storeOrderId").ValueKind);
+        Assert.Equal(JsonValueKind.Null, (await GetAsync(c, $"/api/v1/requests/{open}", d.Customer)).GetProperty("storeOrderId").ValueKind);
+    }
+
+    [Fact]
     public async Task Mismatch_at_the_door_opens_a_dispute_and_freezes_the_order()
     {
         var c = await factory.ClientAsync();
