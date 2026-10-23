@@ -183,11 +183,22 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
     {
         if (ProductSize.NormalizeGroup(dto.VariantGroup) is not { } group) return null;
         var max = kit.Options.MaxVariantsPerGroup;
-        var others = await Db.Products.CountAsync(x => x.PageId == seller.PageId && x.DeletedAt == null && x.VariantGroup == group
-            && (self == null || x.Id != self), ct);
+        var siblings = Db.Products.Where(x => x.PageId == seller.PageId && x.DeletedAt == null && x.VariantGroup == group
+            && (self == null || x.Id != self));
+        // One group = one kind of product: a TV size switcher must never offer a mirror (or a plain product).
+        var kind = EffectiveWallKind(dto);
+        var other = await siblings.Where(x => x.WallKind != kind).Select(x => new { x.WallKind }).FirstOrDefaultAsync(ct);
+        if (other is not null)
+            return new Error(ErrorKind.Validation, "product.variant_kind", "Every size in a variant group must have the same wall kind",
+                new Dictionary<string, object?> { ["expected"] = other.WallKind?.Code() });
+        var others = await siblings.CountAsync(ct);
         return others < max ? null
             : new Error(ErrorKind.BusinessRule, "product.variants_full", "This variant group is full", new Dictionary<string, object?> { ["max"] = max });
     }
+
+    /// <summary>The wall kind <see cref="Apply"/> will store: only sized products keep one.</summary>
+    private static WallKind? EffectiveWallKind(UpsertProductDto dto) =>
+        dto.WidthCm is not null && ProductSize.TryParseWallKind(dto.WallKind, out var kind) ? kind : null;
 
     private static void Apply(Product p, UpsertProductDto dto)
     {
@@ -201,7 +212,7 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         p.WidthCm = dto.WidthCm;
         p.HeightCm = dto.HeightCm;
         p.DepthCm = dto.WidthCm is null ? null : dto.DepthCm;
-        p.WallKind = dto.WidthCm is not null && ProductSize.TryParseWallKind(dto.WallKind, out var kind) ? kind : null;
+        p.WallKind = EffectiveWallKind(dto);
         p.VariantGroup = ProductSize.NormalizeGroup(dto.VariantGroup);
         p.VariantLabel = p.VariantGroup is null ? null : dto.VariantLabel?.Trim();
     }
