@@ -33,7 +33,9 @@ public sealed record CreateRequestDto(string Mode, string? MediaKey, string? Des
 public sealed record IdDto(Guid Id);
 public sealed record RequestSummaryDto(Guid Id, long Number, string Title, string? Image, string Status, int OffersCount, int MaxOffers, DateTime CreatedAt, Guid? OrderId,
     Guid? StoreOrderId = null);
-public sealed record AdBannerDto(Guid Id, Guid? PageId, string PageName, string Title, string Headline, int DiscountPercent, string? Image, string? DeepLink);
+/// <summary>A served ad. The page fields let the app draw the advertiser row (used by the sponsored popup).</summary>
+public sealed record AdBannerDto(Guid Id, Guid? PageId, string PageName, string Title, string Headline, int DiscountPercent, string? Image, string? DeepLink,
+    string? PageImage = null, string? PageHandle = null, bool PageVerified = false);
 public sealed record LiveRequestDto(Guid Id, string Title, string? Image, long MaxPrice, int ReachedPages, int SeenBy,
     IReadOnlyList<long> OfferPrices, int MaxOffers, DateTime ExpandsAt, DateTime ExpiresAt, string Status,
     IReadOnlyList<string> WidenedTo, int WaitedMinutes, long? SuggestedPrice, AdBannerDto? Sponsored, string Governorate, Guid? OrderId,
@@ -100,6 +102,11 @@ public sealed record AdDto(Guid Id, string Slot, string Title, string Headline, 
     long Impressions, long Clicks, long Selections, DateTime StartAt, DateTime EndAt, long DailyPrice);
 public sealed record AdEligibilityDto(bool Eligible, bool Verified, bool RatingOk, bool NoOpenReports, bool NotSuspended, double Rating, double MinRating);
 public sealed record AdEventDto(string Type, string? DeviceId);
+/// <summary>Daily price per slot (total = days x price) and the sponsored popup timing set by the admin.</summary>
+public sealed record AdPricingDto(long HomeBanner, long FeaturedPage, long SponsoredOffer, int PopupDurationSec, int PopupIntervalMin,
+    int PopupFirstDelaySec, int PopupMaxPerAdPerDay);
+/// <summary>Popup timing for the customer app (public, no login).</summary>
+public sealed record AdPopupSettingsDto(int DurationSec, int IntervalMin, int FirstDelaySec, int MaxPerAdPerDay);
 
 // ---- home / notifications / config
 public sealed record StoryDto(Guid PageId, string Name, string? Image, bool IsAd);

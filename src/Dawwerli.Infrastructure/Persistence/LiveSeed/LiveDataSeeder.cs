@@ -1204,9 +1204,10 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                         }
                         else
                         {
-                            ad.Headline = Pick<string>(["عرضنا يطلع أول على طلبك — سعر منافس وتوصيل سريع", "أسعار جملة للمفرد، جرّب عرضنا",
-                                $"{Headline(kit.Slug)} أصلية بكفالة — عرضنا أولاً"]);
-                            ad.ImageKey = pageProducts.Count > 0 ? pageProducts[0].ImageKeys.FirstOrDefault() : page.ImageKey;
+                            // Shown to customers as the timed home popup: a short pitch and always an image (no image = never shown).
+                            ad.Headline = Pick<string>(["سعر منافس وتوصيل سريع لكل المحافظات — شوف عرضنا", "أسعار جملة للمفرد، جرّب عرضنا اليوم",
+                                $"{Headline(kit.Slug)} أصلية بكفالة — عرض لفترة محدودة"]);
+                            ad.ImageKey = (pageProducts.Count > 0 ? pageProducts[0].ImageKeys.FirstOrDefault() : null) ?? page.ImageKey ?? Pick(banners);
                         }
                         if (status == AdStatus.Rejected) ad.Note = RejectNotes[reject++ % RejectNotes.Length];
                         if (status == AdStatus.PausedSuspended) ad.Note = "متوقف مؤقتاً بسبب تعليق الصفحة";

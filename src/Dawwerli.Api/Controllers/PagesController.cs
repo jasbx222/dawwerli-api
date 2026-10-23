@@ -106,6 +106,9 @@ public sealed class PagesController(PageService pages, OfferService offers, Orde
     [HttpGet("pages/me/ads"), HttpGet("page/ads")]
     public async Task<IActionResult> Ads(CancellationToken ct) => From(await ads.MineAsync(ct));
 
+    [HttpGet("pages/me/ads/pricing")]
+    public async Task<IActionResult> AdPricing(CancellationToken ct) => Ok(await ads.PricingAsync(ct));
+
     [HttpGet("pages/me/ads/eligibility")]
     public async Task<IActionResult> Eligibility(CancellationToken ct) => From(await ads.EligibilityAsync(ct));
 
@@ -144,6 +147,9 @@ public sealed class DiscoverController(HomeService home, PageService pages, AdsS
     [HttpGet("ads"), HttpGet("ads/slots")]
     public async Task<IActionResult> Ads([FromQuery] string slot, [FromQuery] int governorateId, [FromQuery] int? categoryId, CancellationToken ct) =>
         Ok(await ads.ServeAsync(slot, governorateId, categoryId, ct));
+
+    [HttpGet("ads/popup-settings")]
+    public async Task<IActionResult> AdPopupSettings(CancellationToken ct) => Ok(await ads.PopupSettingsAsync(ct));
 
     [HttpPost("ads/{id:guid}/events")]
     public async Task<IActionResult> AdEvent(Guid id, AdEventDto dto, CancellationToken ct) => From(await ads.TrackAsync(id, dto, ct));

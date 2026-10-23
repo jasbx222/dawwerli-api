@@ -49,6 +49,7 @@ public sealed class CatalogService(IAppDbContext db, IStorage storage, IRulesPro
             r.MaxOffers, r.MaxEarlySlots, r.EarlyWindowSec, r.MaxOpenRequests, r.MaxVoiceSeconds, r.MinWordsWithoutMedia,
             r.ReplyWindowMin, r.GhostAfterHours, r.ExpandAfterMin, r.OtpResendSec, r.TrustedDeals, r.BillingEnabled,
             r.SelectionFee, r.FreeSelections, r.EarlyAccessMonthly, r.BannerDaily, r.FeaturedWeekly, r.SponsoredOffer,
+            r.PopupDurationSec, r.PopupIntervalMin, r.PopupFirstDelaySec, r.PopupMaxPerAdPerDay,
             r.MinAdRating, r.MinTopUp, r.DisputeDecisionHours, r.MinAppVersion, r.TopUpMethods, r.RatingTags, r.LowRatingTags,
         };
     }

@@ -45,7 +45,16 @@ public sealed class BusinessRules
     public int EarlyAccessDays { get; set; }
     public long BannerDaily { get; set; }
     public long FeaturedWeekly { get; set; }
+    /// <summary>Daily price of a sponsored ad (shown to customers as the home popup); total = days x this.</summary>
     public long SponsoredOffer { get; set; }
+    /// <summary>How long the sponsored popup stays on screen before it closes by itself.</summary>
+    public int PopupDurationSec { get; set; }
+    /// <summary>Minimum in-app (foreground) minutes between two sponsored popups on one device.</summary>
+    public int PopupIntervalMin { get; set; }
+    /// <summary>Foreground seconds after the app opens before the first sponsored popup may appear.</summary>
+    public int PopupFirstDelaySec { get; set; }
+    /// <summary>Times one sponsored ad may pop up per device per day; 0 = unlimited.</summary>
+    public int PopupMaxPerAdPerDay { get; set; }
     public double MinAdRating { get; set; }
     public long MinTopUp { get; set; }
     public int FeedDelayMin { get; set; }
