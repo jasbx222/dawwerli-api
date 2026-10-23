@@ -35,8 +35,8 @@ public static class LiveSeedCommand
           --dry-run  read-only: print the target database, current counts and the plan
           --wipe     delete all non-admin data first (admins, settings, catalog and audit log are kept)
           --confirm  required for anything that writes
-        Defaults come from the "Seed" configuration section. Seller-portal logins are created only when
-        Seed__SellerPassword is set in the environment.
+        Defaults come from the "Seed" configuration section. Seller-portal logins and the app phone + password
+        login for every page owner are created only when Seed__SellerPassword is set in the environment.
         """;
 
     /// <summary>Returns the process exit code: 0 done, 1 refused or failed, 2 bad arguments.</summary>
