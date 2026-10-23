@@ -61,6 +61,13 @@ public sealed class SellerPortalService(StoreKit kit, Shared s, ICurrentSeller s
         return (acc, acc.Page);
     }
 
+    /// <summary>User id of the page this seller account belongs to (the portal acts as that page for page routes).</summary>
+    public async Task<Result<Guid>> PageOwnerAsync(CancellationToken ct)
+    {
+        var c = await ContextAsync(ct);
+        return c.IsSuccess ? c.Value!.Page.UserId : c.Error!;
+    }
+
     public async Task<Result<SellerMeDto>> MeAsync(CancellationToken ct)
     {
         var c = await ContextAsync(ct);

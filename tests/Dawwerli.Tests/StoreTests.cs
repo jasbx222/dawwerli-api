@@ -238,6 +238,39 @@ public class StoreTests(ApiFactory factory)
     }
 
     [Fact]
+    public async Task Portal_page_routes_act_for_the_sellers_own_page_only()
+    {
+        var c = await factory.ClientAsync();
+        var admin = await Api.AdminAsync(c, factory);
+        var s1 = await SellerAsync(c, admin);
+        var s2 = await SellerAsync(c, admin);
+
+        var me = await (await c.SendAsync(Req("GET", "/api/seller/v1/page", s1.Token))).ReadAsync();
+        Assert.Equal(s1.PageId.ToString(), me.GetProperty("id").GetString());
+        Assert.True(me.TryGetProperty("followerCount", out _));
+        Assert.Equal(s2.PageId.ToString(), (await (await c.SendAsync(Req("GET", "/api/seller/v1/page", s2.Token))).ReadAsync()).GetProperty("id").GetString());
+
+        foreach (var path in new[] { "wallet", "ledger", "ads", "ads/eligibility", "standing", "ratings", "offers", "inbox", "settings" })
+            Assert.Equal(HttpStatusCode.OK, (await c.SendAsync(Req("GET", $"/api/seller/v1/page/{path}", s1.Token))).StatusCode);
+
+        var settings = await (await c.SendAsync(Req("GET", "/api/seller/v1/page/settings", s1.Token))).ReadAsync();
+        (await c.SendAsync(Req("PUT", "/api/seller/v1/page/settings", s1.Token, new
+        {
+            receiving = false, sound = true, categoryIds = new[] { Category }, governorateIds = new[] { 1 },
+            from = settings.GetProperty("from").GetInt32(), to = settings.GetProperty("to").GetInt32(), days = new[] { 0, 1, 2 },
+        }))).EnsureSuccessStatusCode();
+        Assert.False((await (await c.SendAsync(Req("GET", "/api/seller/v1/page/settings", s1.Token))).ReadAsync()).GetProperty("receiving").GetBoolean());
+        Assert.True((await (await c.SendAsync(Req("GET", "/api/seller/v1/page/settings", s2.Token))).ReadAsync()).GetProperty("receiving").GetBoolean());
+
+        var appPage = await Api.VerifiedPageAsync(c, admin, Category);
+        Assert.Equal(HttpStatusCode.Forbidden, (await c.SendAsync(Req("GET", "/api/seller/v1/page/wallet", appPage))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(Req("GET", "/api/seller/v1/page/wallet", null))).StatusCode);
+
+        (await c.SendAsync(Req("POST", $"/api/admin/v1/seller-accounts/{s1.AccountId}/disable", admin))).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await c.SendAsync(Req("GET", "/api/seller/v1/page/wallet", s1.Token))).StatusCode);
+    }
+
+    [Fact]
     public async Task Portal_and_app_tokens_are_not_interchangeable_and_sellers_only_touch_their_own()
     {
         var c = await factory.ClientAsync();
@@ -741,6 +774,11 @@ public class StoreTests(ApiFactory factory)
         var ok = await UploadAsync(c, s.Token, "products", "shirt.png", png);
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         Assert.StartsWith("products/", (await ok.ReadAsync()).GetProperty("key").GetString());
+
+        var receipt = await UploadAsync(c, s.Token, "receipts", "r.png", png);
+        Assert.StartsWith("receipts/", (await receipt.ReadAsync()).GetProperty("key").GetString());
+        Assert.Equal(HttpStatusCode.Forbidden, (await UploadAsync(c, s.Token, "disputes", "d.png", png)).StatusCode);
+        Assert.Equal("media.type", Code(await (await UploadAsync(c, s.Token, "receipts", "r.pdf", "%PDF-1.4"u8.ToArray())).ReadAsync()));
     }
 
     [Fact]

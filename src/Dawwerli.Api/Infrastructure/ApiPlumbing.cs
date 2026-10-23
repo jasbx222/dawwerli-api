@@ -11,12 +11,34 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Dawwerli.Api.Infrastructure;
 
-public sealed class HttpCurrentUser(IHttpContextAccessor http) : ICurrentUser
+public sealed class HttpCurrentUser(IHttpContextAccessor http, SellerActingPage acting) : ICurrentUser
 {
     private ClaimsPrincipal? P => http.HttpContext?.User;
-    public Guid UserId => Guid.TryParse(P?.FindFirstValue(ClaimTypes.NameIdentifier) ?? P?.FindFirstValue("sub"), out var id) ? id : Guid.Empty;
-    public UserRole Role => Enum.TryParse<UserRole>(P?.FindFirstValue(ClaimTypes.Role), out var r) ? r : UserRole.Customer;
+    public Guid UserId => acting.PageUserId ?? (Guid.TryParse(P?.FindFirstValue(ClaimTypes.NameIdentifier) ?? P?.FindFirstValue("sub"), out var id) ? id : Guid.Empty);
+    public UserRole Role => acting.PageUserId is not null ? UserRole.Page : Enum.TryParse<UserRole>(P?.FindFirstValue(ClaimTypes.Role), out var r) ? r : UserRole.Customer;
     public string? DeviceKey => http.HttpContext?.Request.Headers["X-Device-Id"].FirstOrDefault();
+}
+
+/// <summary>
+/// Set only by <see cref="ActAsSellerPageAttribute"/> on seller portal page routes: the page owner the signed-in
+/// seller account acts for, so the existing page services run unchanged and stay scoped to that one page.
+/// </summary>
+public sealed class SellerActingPage { public Guid? PageUserId { get; set; } }
+
+/// <summary>Validates the seller account (enabled, password stamp) and acts as its page for this request.
+/// Runs before <see cref="IdempotentAttribute"/> so idempotency keys are scoped to the page.</summary>
+public sealed class ActAsSellerPageAttribute : Attribute, IAsyncActionFilter, IOrderedFilter
+{
+    public int Order => -100;
+
+    public async Task OnActionExecutionAsync(ActionExecutingContext ctx, ActionExecutionDelegate next)
+    {
+        var sp = ctx.HttpContext.RequestServices;
+        var owner = await sp.GetRequiredService<Dawwerli.Application.Services.SellerPortalService>().PageOwnerAsync(ctx.HttpContext.RequestAborted);
+        if (!owner.IsSuccess) { ctx.Result = ProblemMapping.ToProblem(owner.Error!); return; }
+        sp.GetRequiredService<SellerActingPage>().PageUserId = owner.Value;
+        await next();
+    }
 }
 
 /// <summary>Web seller portal token (role + scope + page id, see SellerTokenService).</summary>
