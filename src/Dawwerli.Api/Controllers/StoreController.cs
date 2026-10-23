@@ -14,9 +14,21 @@ public sealed class StoreController(StoreService store, DiscoveryService discove
     [HttpGet("store/orders/{id:guid}/courier-location")]
     public async Task<IActionResult> CourierLocation(Guid id, CancellationToken ct) => From(await tracking.ForCustomerAsync(id, ct));
 
+    /// <summary>
+    /// A page's visible products. Optional: q (name search, Arabic letter forms and diacritics folded, max 60 chars),
+    /// categoryIds (repeat or comma list, max 20), minPrice / maxPrice (IQD, inclusive), inStock=true,
+    /// sort = newest (default) | price_asc | price_desc | best_selling | top_rated. Invalid values give 400.
+    /// </summary>
     [AllowAnonymous, HttpGet("pages/{pageId:guid}/products")]
-    public async Task<IActionResult> PageProducts(Guid pageId, [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
-        From(await store.PageProductsAsync(pageId, page, pageSize, ct));
+    public async Task<IActionResult> PageProducts(Guid pageId, [FromQuery] string? q, [FromQuery] string[]? categoryIds,
+        [FromQuery] long? minPrice, [FromQuery] long? maxPrice, [FromQuery] bool? inStock, [FromQuery] string? sort,
+        [FromQuery] int? page, [FromQuery] int? pageSize, CancellationToken ct) =>
+        From(await store.PageProductsAsync(pageId, new PageProductQuery(q, categoryIds, minPrice, maxPrice, inStock, sort, page, pageSize), ct));
+
+    /// <summary>Filter options for a page's product search: categories with counts, price range, total and in-stock counts.</summary>
+    [AllowAnonymous, HttpGet("pages/{pageId:guid}/product-facets")]
+    public async Task<IActionResult> PageProductFacets(Guid pageId, CancellationToken ct) =>
+        From(await store.PageProductFacetsAsync(pageId, ct));
 
     [AllowAnonymous, HttpGet("products/top-rated")]
     public async Task<IActionResult> TopRated([FromQuery] int? pages, [FromQuery] int? perPage, CancellationToken ct) =>

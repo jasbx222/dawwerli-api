@@ -20,7 +20,17 @@ public sealed record SellerProductDto(Guid Id, string Name, string Description, 
     string? VariantGroup = null, string? VariantLabel = null);
 public sealed record ProductCardDto(Guid Id, string Name, long Price, string? ImageUrl, bool Available,
     string Description = "", int Stock = 0, double Rating = 0, int RatingCount = 0,
-    decimal? WidthCm = null, decimal? HeightCm = null, decimal? DepthCm = null, string? WallKind = null);
+    decimal? WidthCm = null, decimal? HeightCm = null, decimal? DepthCm = null, string? WallKind = null,
+    int CategoryId = 0, string? CategoryName = null);
+/// <summary>
+/// Search and filters for one page's products. CategoryIds accepts repeated keys or comma lists ("1,8"); prices are IQD and inclusive.
+/// Sort: newest (default: in stock first, then newest), price_asc, price_desc, best_selling, top_rated.
+/// </summary>
+public sealed record PageProductQuery(string? Q = null, IReadOnlyList<string>? CategoryIds = null, long? MinPrice = null, long? MaxPrice = null,
+    bool? InStock = null, string? Sort = null, int? Page = null, int? PageSize = null);
+public sealed record PageProductCategoryDto(int Id, string Slug, string Name, int Count);
+/// <summary>Filter options for one page: its products' categories with counts and price range (visible products only).</summary>
+public sealed record PageProductFacetsDto(int Total, int InStock, long? MinPrice, long? MaxPrice, IReadOnlyList<PageProductCategoryDto> Categories);
 public sealed record ProductDetailsDto(Guid Id, Guid PageId, string PageName, string Name, string Description, long Price,
     IReadOnlyList<string?> ImageUrls, int CategoryId, int Stock, bool Available, double Rating = 0, int RatingCount = 0,
     bool HasRated = false, ProductReviewDto? MyReview = null, bool IsFavorite = false,

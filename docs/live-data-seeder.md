@@ -26,7 +26,7 @@ how many real users there are.
 History is spread over the last 180 days. Phones use fictional blocks: customers `0790001xxxx`, page users `0790002xxxx`,
 couriers `0790003xxxx`. Prices are in IQD.
 
-### Product sizes and wall items (live-seed-v4)
+### Product sizes and wall items (since live-seed-v4)
 
 Every seeded product has a real-world size in cm (`width_cm`, `height_cm`, `depth_cm`, 1 decimal, 1–1000), taken from
 its template in `LiveSeedDimensions.cs`: e.g. iPhone 15 Pro Max 7.7 × 16.0, 7-seat sofa set 230 × 85 × 90, 14 ft fridge
@@ -143,6 +143,7 @@ Local run, default volume (25,000 products), `DOTNET_gcServer=0`:
 |---|---|---|---|
 | `--wipe --confirm` (wipe + reseed) | about 7 s | about 9 s | about 340 MB |
 | `--backfill-dimensions --confirm` | about 1 s | about 3 s | about 230 MB |
+| `--backfill-categories --confirm` | about 1 s | about 3 s | about 230 MB |
 | `--dry-run` | - | about 2 s | about 200 MB |
 
 With the default server GC the wipe + reseed peaks around 650 MB. On a small server set `DOTNET_gcServer=0` for the
@@ -164,27 +165,28 @@ pg_dump -h <host> -U <user> -d <db> -Fc -f dawwerli-before-live-seed-$(date +%F-
    `Seed__MinProductsPerPage` / `Seed__MaxProductsPerPage` (default 50 / 50, max 200), `Seed__Customers`, `Seed__Offers`,
    `Seed__StoreOrders`, `Seed__Ads`, `Seed__FeaturedPages`, `Seed__HistoryDays`, `Seed__RandomSeed`.
 2. Deploy / restart. After migrations and before the API starts listening it takes a Postgres advisory lock, checks for the
-   marker row (`settings` id 9001 containing `live-seed-v4`) and, if absent, wipes and seeds in one transaction, then
+   marker row (`settings` id 9001 containing `live-seed-v5`) and, if absent, wipes and seeds in one transaction, then
    writes the marker. If real (non-seeded) users exist it deletes nothing and only adds sizes to the seeded products
    (see "Upgrading" below). If anything fails the transaction rolls back and nothing changes.
 3. Check the logs:
    ```
-   warn: ... Live seed: Seed:Live=true and no marker live-seed-v4. DELETING all seeded data and seeding live data now.
+   warn: ... Live seed: Seed:Live=true and no marker live-seed-v5. DELETING all seeded data and seeding live data now.
    warn: ... Live seed: wiped N rows: pages=…, users (non-admin)=…
    warn: ... Live seed: done in 6.2s: customers=50, page_users=500, pages=500, … Remove Seed__Live from the server environment.
    warn: ... Live seed: showcase page: مركز الرافدين للموبايلات (@rafidain.mobile), app login phone 07900020001 …
    ```
-   On later restarts: `Live seed: marker live-seed-v4 found, skipping.`
+   On later restarts: `Live seed: marker live-seed-v5 found, skipping.`
 4. Remove `Seed__Live` (and `Seed__SellerPassword`) from the server environment. The marker makes it safe if you forget,
    but don't leave it on. While the marker exists the QA demo scenario is never re-added.
 
-**Upgrading from v1/v2/v3.** The marker key is now `live-seed-v4`. A server that already ran an older version has a
+**Upgrading from v1–v4.** The marker key is now `live-seed-v5`. A server that already ran an older version has a
 `live-seed-v1`…`live-seed-v4` marker, which counts as "no marker": if `Seed__Live=true` is set, the next restart
-re-seeds **once**, writes `live-seed-v4`, and skips from then on:
+re-seeds **once**, writes `live-seed-v5`, and skips from then on:
 
 - only seeded users in the database: full wipe + reseed. With the same `Seed__RandomSeed` and counts the products are the
   same as before (same ids, names, prices), now with sizes. Orders, follows, ads… are re-created as fresh seed data.
-- real (non-seeded) users present: nothing is deleted; the backfill below runs instead, and the log says
+- real (non-seeded) users present: nothing is deleted; both backfills below (`--backfill-dimensions` and
+  `--backfill-categories`) run instead, and the log says
   `… real (non-seeded) users exist, so NOTHING is deleted. Updating the seeded products …`.
 
 If you do not want either, make sure `Seed__Live` is not set. To update the seeded products without restarting, use
@@ -200,6 +202,8 @@ The command exits without starting the web host. It uses the same configuration 
 dotnet Dawwerli.Api.dll seed-live --dry-run              # read only: prints host/db/user (never the password), current counts, plan
 dotnet Dawwerli.Api.dll seed-live --wipe --confirm       # wipe seeded data + seed (refused if real users exist)
 dotnet Dawwerli.Api.dll seed-live --backfill-dimensions --confirm   # update seeded products in place (sizes, wall kinds, wall products); deletes nothing
+dotnet Dawwerli.Api.dll seed-live --backfill-categories --confirm   # only fix seeded products' categories; deletes nothing
+dotnet Dawwerli.Api.dll seed-live --backfill-categories --backfill-dimensions --confirm   # both
 dotnet Dawwerli.Api.dll seed-live --wipe --include-real-users --confirm   # wipe ALL non-admin data, real users included
 dotnet Dawwerli.Api.dll seed-live --wipe --confirm --seed 7 --pages 300 --customers 40 --ads 30
 DOTNET_gcServer=0 dotnet Dawwerli.Api.dll seed-live --wipe --confirm   # lower memory on a small server
@@ -219,8 +223,17 @@ reviews, favourites and carts stay.
 - pages seeded before the wall templates existed get the missing wall products (each size of each wall template of
   their category kit). Such pages can then list a few more than 50 products. A name a seller deleted is not added back.
 
-It writes the `live-seed-v4` marker (with the counts), so a later `Seed__Live=true` start skips. It is idempotent: a second
+It writes the `live-seed-v5` marker (with the counts), so a later `Seed__Live=true` start skips. It is idempotent: a second
 run reports 0 for everything. Output: `products_sized=…, wall_products_marked=…, wall_products_added=…, wall_kinds_cleared=…`.
+
+`--backfill-categories` fixes the category of seeded products made from a template that belongs to another category than
+its page's kit (`LiveSeedCategories`): earbuds and power banks on phone shops → electronics, TVs → electronics, fridges,
+washers and splits on home shops → appliances, sofas and beds → furniture, consoles on electronics shops → gaming, make-up
+on care shops → beauty, bouquets on gift shops → flowers, mirrors, frames, canvases and rugs → home. Older seeds put every
+product in its page's category, which made the page product filter useless. Same guard as above: only pages owned by
+seeded page users, ids and everything else stay, the marker is written, and a second run changes nothing. A fresh seed
+already uses the right categories. When real users exist, the startup path (`Seed__Live=true`, no marker) runs both
+backfills.
 
 Seeded users are recognised by hashing the fictional phones with `Security__PhoneHashKey`, so run the command with the same
 key the API uses (it reads the same environment).

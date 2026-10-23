@@ -1,4 +1,5 @@
 using Dawwerli.Domain.Common;
+using Dawwerli.Domain.Rules;
 
 namespace Dawwerli.Domain.Entities;
 
@@ -7,7 +8,18 @@ public class Product : Entity
 {
     public Guid PageId { get; set; }
     public Page? Page { get; set; }
-    public string Name { get; set; } = "";
+    private string _name = "";
+    public string Name
+    {
+        get => _name;
+        set
+        {
+            _name = value ?? "";
+            NormalizedName = ArabicText.Normalize(_name);
+        }
+    }
+    /// <summary>Search key: <see cref="ArabicText.Normalize"/> of <see cref="Name"/>, kept in step whenever the name is set.</summary>
+    public string NormalizedName { get; private set; } = "";
     public string Description { get; set; } = "";
     /// <summary>IQD.</summary>
     public long Price { get; set; }

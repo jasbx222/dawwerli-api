@@ -90,8 +90,8 @@ public sealed class StoreKit(Shared s, IOptions<StoreOptions> options)
         p.CategoryId, p.Stock, p.Active, p.HiddenByAdmin, p.Available, p.CreatedAt, p.Rating, p.RatingCount,
         p.WidthCm, p.HeightCm, p.DepthCm, WallKindCode(p), p.VariantGroup, p.VariantLabel);
 
-    public ProductCardDto ToCard(Product p) => new(p.Id, p.Name, p.Price, s.Url(p.ImageKeys.FirstOrDefault()), p.Available,
-        p.Description, p.Stock, p.Rating, p.RatingCount, p.WidthCm, p.HeightCm, p.DepthCm, WallKindCode(p));
+    public ProductCardDto ToCard(Product p, string? categoryName = null) => new(p.Id, p.Name, p.Price, s.Url(p.ImageKeys.FirstOrDefault()), p.Available,
+        p.Description, p.Stock, p.Rating, p.RatingCount, p.WidthCm, p.HeightCm, p.DepthCm, WallKindCode(p), p.CategoryId, categoryName);
 
     /// <summary>The wall kind only counts with a full width × height (the DB constraint guarantees it; this keeps DTOs honest too).</summary>
     public static string? WallKindCode(Product p) => p.HasWallSize && p.WallKind is { } k ? k.Code() : null;
