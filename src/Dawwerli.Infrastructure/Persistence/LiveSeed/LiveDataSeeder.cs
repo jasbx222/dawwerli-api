@@ -26,7 +26,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
 {
     /// <summary>Settings row that records a finished live seed (business settings use id 1).</summary>
     public const int MarkerId = 9001;
-    public const string MarkerName = "live-seed-v2";
+    public const string MarkerName = "live-seed-v3";
     /// <summary>pg_advisory_xact_lock key, so two app instances never seed at the same time.</summary>
     public const long LockKey = 0x64617777_6C697665; // "dawwlive"
     public const string SellerEmailDomain = "sellers.dawwerli.test";
@@ -115,7 +115,17 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             log.LogInformation("Live seed: marker {Marker} found, skipping. Remove Seed__Live from the server environment.", MarkerName);
             return new LiveSeedReport(true, "marker present", [], [], TimeSpan.Zero);
         }
-        log.LogWarning("Live seed: Seed:Live=true and no marker {Marker}. DELETING all non-admin data and seeding live data now.", MarkerName);
+        var real = await CountRealUsersAsync(ct);
+        if (real > 0)
+        {
+            log.LogWarning("Live seed: no marker {Marker}, but {Real} real (non-seeded) users exist, so NOTHING is deleted. " +
+                "Adding sizes to the seeded products instead. To replace everything anyway run: seed-live --wipe --include-real-users --confirm", MarkerName, real);
+            var backfill = await BackfillDimensionsAsync(ct);
+            log.LogWarning("Live seed: sized {Count} seeded products in {Seconds:F1}s. Remove Seed__Live from the server environment.",
+                backfill.Created.Sum(kv => kv.Value), backfill.Elapsed.TotalSeconds);
+            return backfill;
+        }
+        log.LogWarning("Live seed: Seed:Live=true and no marker {Marker}. DELETING all seeded data and seeding live data now.", MarkerName);
         var report = await RunAsync(options.Value.Copy(), wipe: true, onlyIfNoMarker: true, ct);
         if (report.Skipped) log.LogInformation("Live seed: {Message}", report.Message);
         else
@@ -134,7 +144,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
     /// <paramref name="onlyIfNoMarker"/> re-checks the marker inside the lock (startup); the command uses <paramref name="wipe"/>.
     /// Without <paramref name="wipe"/> it refuses when the marker or any page already exists.
     /// </summary>
-    public async Task<LiveSeedReport> RunAsync(LiveSeedOptions o, bool wipe, bool onlyIfNoMarker, CancellationToken ct = default)
+    public async Task<LiveSeedReport> RunAsync(LiveSeedOptions o, bool wipe, bool onlyIfNoMarker, CancellationToken ct = default, bool includeRealUsers = false)
     {
         if (o.Validate() is { } bad) throw new ArgumentException(bad);
         var sw = Stopwatch.StartNew();
@@ -150,6 +160,8 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                 return new LiveSeedReport(true, "marker written by another instance, skipping", [], [], sw.Elapsed);
             if (!wipe && (await MarkerExistsAsync(ct) || await db.Pages.AnyAsync(ct)))
                 return new LiveSeedReport(true, "data already present; run with --wipe to replace it", [], [], sw.Elapsed);
+            if (wipe && !includeRealUsers && await CountRealUsersAsync(ct) is > 0 and var real)
+                return new LiveSeedReport(true, $"{real} real (non-seeded) users exist and the wipe would delete them; use --backfill-dimensions to keep everything, or add --include-real-users to wipe anyway", [], [], sw.Elapsed);
 
             var wiped = wipe ? await WipeAsync(ct) : [];
             var run = new Run(this, o);
@@ -186,7 +198,8 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
     {
         var lines = new List<string>
         {
-            $"marker {MarkerName}: {(await MarkerExistsAsync(ct) ? "present" : "absent")}",
+            $"marker {MarkerName}: {(await MarkerExistsAsync(ct) ? "present" : "absent")}, real (non-seeded) users: {await CountRealUsersAsync(ct)}, " +
+            $"products without size: {await db.Products.CountAsync(p => p.WidthCm == null && p.HeightCm == null, ct)}",
             $"governorates: {await db.Governorates.CountAsync(ct)}, categories: {await db.Categories.CountAsync(ct)}",
             $"current: users(non-admin)={await db.Users.CountAsync(u => u.Role != UserRole.Admin, ct)}, admins={await db.Users.CountAsync(u => u.Role == UserRole.Admin, ct)}, " +
             $"pages={await db.Pages.CountAsync(ct)}, products={await db.Products.CountAsync(ct)}, requests={await db.Requests.CountAsync(ct)}, " +
@@ -196,6 +209,98 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             $"history={o.HistoryDays} days, seed={o.RandomSeed}, seller_accounts={(string.IsNullOrEmpty(o.SellerPassword) ? "no" : "yes")}",
         };
         return string.Join(Environment.NewLine, lines);
+    }
+
+    /// <summary>Seeded phones are 0790001NNNN (customers) and 0790002NNNN (page owners); NNNN never exceeds this.</summary>
+    private const int MaxSeededPhoneIndex = 9999;
+    private HashSet<string>? seededHashes;
+
+    /// <summary>Phone hashes of every account the live seed can create, so seeded users are told apart from real ones.</summary>
+    private HashSet<string> SeededPhoneHashes()
+    {
+        if (seededHashes is not null) return seededHashes;
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 1; i <= MaxSeededPhoneIndex; i++)
+        {
+            set.Add(phones.Hash($"0790001{i:D4}"));
+            set.Add(phones.Hash($"0790002{i:D4}"));
+        }
+        return seededHashes = set;
+    }
+
+    /// <summary>Non-admin users the live seed did not create (people who signed up for real). The wipe would delete them.</summary>
+    public async Task<int> CountRealUsersAsync(CancellationToken ct = default)
+    {
+        var seeded = SeededPhoneHashes();
+        var hashes = await db.Users.AsNoTracking().Where(u => u.Role != UserRole.Admin).Select(u => u.PhoneHash).ToListAsync(ct);
+        return hashes.Count(h => !seeded.Contains(h));
+    }
+
+    /// <summary>
+    /// Gives every seeded product that has no size yet the real-world size of its template (cm), without deleting or
+    /// re-creating anything: ids, orders, reviews and favourites stay. Only products on pages owned by seeded page users
+    /// are touched. Runs under the advisory lock and writes the current marker, so a later Seed__Live=true start skips.
+    /// </summary>
+    public async Task<LiveSeedReport> BackfillDimensionsAsync(CancellationToken ct = default)
+    {
+        var sw = Stopwatch.StartNew();
+        var timeout = db.Database.GetCommandTimeout();
+        db.Database.SetCommandTimeout(TimeSpan.FromMinutes(10));
+        try
+        {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+            await db.Database.ExecuteSqlRawAsync($"SELECT pg_advisory_xact_lock({LockKey})", ct);
+            var updated = await BackfillInTransactionAsync(ct);
+            await WriteMarkerAsync(new { marker = MarkerName, backfilledAt = clock.UtcNow, backfilledProducts = updated }, ct);
+            await tx.CommitAsync(ct);
+            return new LiveSeedReport(false, "dimensions backfilled", [], [new("products_sized", updated)], sw.Elapsed);
+        }
+        finally
+        {
+            db.ChangeTracker.Clear();
+            db.Database.SetCommandTimeout(timeout);
+        }
+    }
+
+    private async Task<int> BackfillInTransactionAsync(CancellationToken ct)
+    {
+        var seeded = SeededPhoneHashes();
+        var owners = (await db.Users.AsNoTracking().Where(u => u.Role == UserRole.Page).Select(u => new { u.Id, u.PhoneHash }).ToListAsync(ct))
+            .Where(u => seeded.Contains(u.PhoneHash)).Select(u => u.Id).ToHashSet();
+        var slugs = await db.Categories.AsNoTracking().ToDictionaryAsync(c => c.Id, c => c.Slug, ct);
+        var kits = Kits.ToDictionary(k => k.Slug);
+        var rows = await (from p in db.Products.AsNoTracking()
+                          join pg in db.Pages.AsNoTracking() on p.PageId equals pg.Id
+                          where p.WidthCm == null && p.HeightCm == null && p.DepthCm == null
+                          select new { p.Id, p.Name, p.CategoryId, pg.UserId }).ToListAsync(ct);
+        var groups = rows.Where(r => owners.Contains(r.UserId))
+            .GroupBy(r =>
+            {
+                var slug = r.CategoryId is { } cid && slugs.TryGetValue(cid, out var sl) ? sl : "";
+                return LiveSeedDimensions.For(kits.TryGetValue(slug, out var kit) ? LiveSeedDimensions.TemplateOf(kit, r.Name) : null, slug);
+            }, r => r.Id);
+        var total = 0;
+        foreach (var g in groups)
+        {
+            var (w, h, d) = (g.Key.W, g.Key.H, g.Key.D);
+            foreach (var chunk in g.Chunk(5000))
+            {
+                var ids = chunk.ToList();
+                total += await db.Products.Where(p => ids.Contains(p.Id))
+                    .ExecuteUpdateAsync(s => s.SetProperty(p => p.WidthCm, w).SetProperty(p => p.HeightCm, h).SetProperty(p => p.DepthCm, d), ct);
+            }
+        }
+        return total;
+    }
+
+    private async Task WriteMarkerAsync(object data, CancellationToken ct)
+    {
+        var json = JsonSerializer.Serialize(data);
+        var row = await db.Settings.FirstOrDefaultAsync(s => s.Id == MarkerId, ct);
+        if (row is null) db.Settings.Add(new SettingsRecord { Id = MarkerId, UpdatedAt = clock.UtcNow, Data = json });
+        else { row.Data = json; row.UpdatedAt = clock.UtcNow; db.Entry(row).State = EntityState.Modified; }
+        await db.SaveChangesAsync(ct);
+        db.ChangeTracker.Clear();
     }
 
     private TimeZoneInfo Zone()
@@ -604,6 +709,7 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
                         CreatedAt = Between(page.CreatedAt.AddDays(1), DaysAgo(1)),
                     };
                     if (seed.Wall is { } w && variant >= 0) ApplyWall(p, seed, w, variant, groupImages);
+                    else ApplySize(p, seed, kit.Slug);
                     list.Add(p);
                     templateOf[p.Id] = seed;
                 }
@@ -625,6 +731,13 @@ public sealed class LiveDataSeeder(AppDbContext db, IPhoneProtector phones, IPas
             p.ImageKeys = groupImages.TryGetValue(w.Group, out var shared) ? shared : groupImages[w.Group] = p.ImageKeys;
             var step = w.Sizes.Length > 1 ? (double)variant / (w.Sizes.Length - 1) : 0;
             p.Price = RoundPrice(seed.MinPrice + (seed.MaxPrice - seed.MinPrice) * step * (0.95 + rng.NextDouble() * 0.05));
+        }
+
+        /// <summary>Real-world size of a non-wall product. A table lookup, so it does not shift the random stream.</summary>
+        private static void ApplySize(Product p, ProductSeed seed, string slug)
+        {
+            var s = LiveSeedDimensions.For(seed, slug);
+            (p.WidthCm, p.HeightCm, p.DepthCm) = (s.W, s.H, s.D);
         }
 
         private List<Page> LivePages => pages.Where(p => p.IsActive(now)).ToList();

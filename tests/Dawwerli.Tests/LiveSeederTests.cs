@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
 using System.Net;
+using Dawwerli.Application.Abstractions;
+using Dawwerli.Application.Validation;
 using Dawwerli.Domain.Entities;
 using Dawwerli.Infrastructure.Persistence;
 using Dawwerli.Infrastructure.Persistence.LiveSeed;
@@ -228,7 +230,7 @@ public class LiveSeederTests(LiveSeedApiFactory factory) : IClassFixture<LiveSee
         var (scope, db, seeder, _) = await OpenAsync();
         await using var _ = scope;
         var marker = await db.Settings.SingleAsync(s => s.Id == LiveDataSeeder.MarkerId);
-        marker.Data = marker.Data.Replace(LiveDataSeeder.MarkerName, "live-seed-v1");
+        marker.Data = marker.Data.Replace(LiveDataSeeder.MarkerName, "live-seed-v2");
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
         Assert.False(await seeder.MarkerExistsAsync());
@@ -313,5 +315,125 @@ public class LiveSeederTests(LiveSeedApiFactory factory) : IClassFixture<LiveSee
         stillAdmin.Headers.Authorization = new("Bearer", admin);
         Assert.NotEqual(HttpStatusCode.Unauthorized, (await c.SendAsync(stillAdmin)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await c.GetAsync("/api/v1/pages/directory")).StatusCode);
+    }
+
+    private static bool Sized(Product p) =>
+        ProductSize.IsValidCm(p.WidthCm) && ProductSize.IsValidCm(p.HeightCm) && (p.DepthCm is null || ProductSize.IsValidCm(p.DepthCm));
+
+    [Fact]
+    public void Every_product_template_has_a_valid_real_world_size()
+    {
+        var nonWall = LiveSeedData.Kits.SelectMany(k => k.Products).Where(t => t.Wall is null).Select(t => t.Name).Distinct().ToList();
+        Assert.Empty(nonWall.Where(n => !LiveSeedDimensions.ByTemplate.ContainsKey(n)));
+        Assert.Empty(LiveSeedData.Kits.Select(k => k.Slug).Where(s => !LiveSeedDimensions.ByCategory.ContainsKey(s)));
+        Assert.All(LiveSeedDimensions.ByTemplate.Values.Concat(LiveSeedDimensions.ByCategory.Values), s =>
+            Assert.True(ProductSize.IsValidCm(s.W) && ProductSize.IsValidCm(s.H) && (s.D is null || ProductSize.IsValidCm(s.D)), $"{s}"));
+        // The longest template wins, so a longer name is never sized as its shorter prefix.
+        var appliances = LiveSeedData.Kits.Single(k => k.Slug == "appliances");
+        Assert.Equal("ثلاجة 14 قدم نوفروست", LiveSeedDimensions.TemplateOf(appliances, "ثلاجة 14 قدم نوفروست مستعمل")!.Name);
+        Assert.Null(LiveSeedDimensions.TemplateOf(appliances, "ثلاجة 14 قدمية"));
+    }
+
+    [Fact]
+    public async Task Every_seeded_product_has_dimensions_and_only_wall_items_have_a_wall_kind()
+    {
+        var (scope, db, _, o) = await OpenAsync();
+        await using var __ = scope;
+        var products = await db.Products.AsNoTracking().ToListAsync();
+        Assert.Equal(o.Pages * o.MaxProductsPerPage, products.Count);
+        Assert.All(products, p => Assert.True(Sized(p), $"{p.Name}: {p.WidthCm}x{p.HeightCm}x{p.DepthCm}"));
+        Assert.All(products.Where(p => p.WallKind is null), p => Assert.Null(p.VariantGroup));
+        Assert.All(products.Where(p => p.WallKind is not null), p => Assert.NotNull(p.VariantGroup));
+        Assert.Contains(products, p => p.WallKind is null && p.Name.StartsWith("آيفون 15 برو ماكس") && p.WidthCm == 7.7m && p.HeightCm == 16.0m);
+        Assert.Contains(products, p => p.WallKind is null && p.Name.StartsWith("طقم قنفات 7 مقاعد") && p.WidthCm == 230m);
+    }
+
+    [Fact]
+    public async Task Backfill_sizes_seeded_products_without_deleting_anything()
+    {
+        var (scope, db, seeder, _) = await OpenAsync();
+        await using var __ = scope;
+        var before = await db.Products.AsNoTracking().Where(p => p.WallKind == null)
+            .Select(p => new { p.Id, p.WidthCm, p.HeightCm, p.DepthCm }).ToDictionaryAsync(p => p.Id);
+        var orders = await db.StoreOrders.CountAsync();
+        var users = await db.Users.CountAsync();
+
+        // A real (non-seeded) page owner takes over one page: its products must stay as they are.
+        var phones = scope.ServiceProvider.GetRequiredService<IPhoneProtector>();
+        var real = new User { Id = Guid.NewGuid(), Role = UserRole.Page, PhoneHash = phones.Hash("07712345601"), PhoneEncrypted = phones.Encrypt("07712345601"), Name = "صاحب صفحة حقيقي" };
+        db.Users.Add(real);
+        await db.SaveChangesAsync();
+        var page = await db.Pages.OrderBy(p => p.CreatedAt).Skip(1).FirstAsync();
+        var seededOwner = page.UserId;
+        page.UserId = real.Id;
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        try
+        {
+            await db.Products.Where(p => p.WallKind == null).ExecuteUpdateAsync(s => s
+                .SetProperty(p => p.WidthCm, (decimal?)null).SetProperty(p => p.HeightCm, (decimal?)null).SetProperty(p => p.DepthCm, (decimal?)null));
+
+            var report = await seeder.BackfillDimensionsAsync();
+            Assert.False(report.Skipped);
+            var after = await db.Products.AsNoTracking().ToListAsync();
+            var mine = after.Where(p => p.PageId == page.Id).ToList();
+            Assert.NotEmpty(mine);
+            Assert.All(mine.Where(p => p.WallKind == null), p => Assert.Null(p.WidthCm));
+            Assert.Equal(before.Count - mine.Count(p => p.WallKind == null), report.Created.Single().Value);
+            // Same rows, same ids, and the same sizes a fresh seed gives.
+            Assert.Equal(before.Count, after.Count(p => p.WallKind == null));
+            Assert.All(after.Where(p => p.WallKind == null && p.PageId != page.Id), p =>
+                Assert.Equal((before[p.Id].WidthCm, before[p.Id].HeightCm, before[p.Id].DepthCm), (p.WidthCm, p.HeightCm, p.DepthCm)));
+            Assert.Equal(orders, await db.StoreOrders.CountAsync());
+            Assert.Equal(users, await db.Users.CountAsync() - 1);
+            Assert.True(await seeder.MarkerExistsAsync());
+        }
+        finally
+        {
+            await db.Pages.Where(p => p.Id == page.Id).ExecuteUpdateAsync(s => s.SetProperty(p => p.UserId, seededOwner));
+            await db.Users.Where(u => u.Id == real.Id).ExecuteDeleteAsync();
+            await seeder.BackfillDimensionsAsync();
+        }
+        Assert.All(await db.Products.AsNoTracking().ToListAsync(), p => Assert.True(Sized(p)));
+    }
+
+    [Fact]
+    public async Task Wipe_is_refused_and_startup_only_backfills_when_real_users_exist()
+    {
+        var (scope, db, seeder, o) = await OpenAsync();
+        await using var __ = scope;
+        var phones = scope.ServiceProvider.GetRequiredService<IPhoneProtector>();
+        var real = new User { Id = Guid.NewGuid(), Role = UserRole.Customer, PhoneHash = phones.Hash("07712345602"), PhoneEncrypted = phones.Encrypt("07712345602"), Name = "زبون حقيقي" };
+        db.Users.Add(real);
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        try
+        {
+            var pages = await db.Pages.CountAsync();
+            var ids = await db.Products.Select(p => p.Id).OrderBy(x => x).ToListAsync();
+            Assert.Equal(1, await seeder.CountRealUsersAsync());
+
+            var wipe = await seeder.RunAsync(o, wipe: true, onlyIfNoMarker: false);
+            Assert.True(wipe.Skipped);
+            Assert.Contains("--include-real-users", wipe.Message);
+
+            // An older marker (e.g. a server seeded with v2) plus real users: startup sizes the products and deletes nothing.
+            var marker = await db.Settings.SingleAsync(s => s.Id == LiveDataSeeder.MarkerId);
+            marker.Data = $"{{\"marker\":\"live-seed-v2\"}}";
+            await db.SaveChangesAsync();
+            db.ChangeTracker.Clear();
+            var startup = await seeder.RunOnStartupAsync();
+            Assert.False(startup.Skipped);
+            Assert.Empty(startup.Wiped);
+            Assert.True(await seeder.MarkerExistsAsync());
+            Assert.Equal(pages, await db.Pages.CountAsync());
+            Assert.Equal(ids, await db.Products.Select(p => p.Id).OrderBy(x => x).ToListAsync());
+            Assert.True(await db.Users.AnyAsync(u => u.Id == real.Id));
+        }
+        finally
+        {
+            await db.Users.Where(u => u.Id == real.Id).ExecuteDeleteAsync();
+        }
+        Assert.Equal(0, await seeder.CountRealUsersAsync());
     }
 }
