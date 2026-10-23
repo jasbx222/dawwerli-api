@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Net;
 using Dawwerli.Domain.Entities;
 using Dawwerli.Infrastructure.Persistence;
@@ -19,14 +20,13 @@ public sealed class LiveSeedApiFactory : ApiFactory
         base.ConfigureWebHost(b);
         b.UseSetting("Seed:Live", "true");
         b.UseSetting("Seed:Pages", "40");
-        b.UseSetting("Seed:ProductPages", "10");
-        b.UseSetting("Seed:MinProductsPerPage", "10");
-        b.UseSetting("Seed:MaxProductsPerPage", "20");
+        b.UseSetting("Seed:ProductPages", "500"); // above Pages = every page
+        b.UseSetting("Seed:MinProductsPerPage", "50");
+        b.UseSetting("Seed:MaxProductsPerPage", "50");
         b.UseSetting("Seed:Customers", "15");
         b.UseSetting("Seed:Offers", "12");
         b.UseSetting("Seed:StoreOrders", "40");
-        b.UseSetting("Seed:Banners", "2");
-        b.UseSetting("Seed:FeaturedAds", "2");
+        b.UseSetting("Seed:Ads", "50");
         b.UseSetting("Seed:FeaturedPages", "3");
         b.UseSetting("Seed:SellerPassword", "seller-pass-123");
     }
@@ -52,11 +52,15 @@ public class LiveSeederTests(LiveSeedApiFactory factory) : IClassFixture<LiveSee
         Assert.Equal(o.Pages, await db.Pages.CountAsync());
         Assert.Equal(o.Customers, await db.Users.CountAsync(u => u.Role == UserRole.Customer));
         Assert.Equal(o.Offers, await db.Offers.CountAsync());
-        Assert.Equal(o.ProductPages, await db.SellerAccounts.CountAsync());
+        Assert.Equal(o.Pages, await db.SellerAccounts.CountAsync());
 
-        var perPage = await db.Products.GroupBy(p => p.PageId).Select(g => g.Count()).ToListAsync();
-        Assert.Equal(o.ProductPages, perPage.Count);
-        Assert.All(perPage, n => Assert.InRange(n, o.MinProductsPerPage, o.MaxProductsPerPage));
+        // Every page lists exactly 50 distinct products.
+        var perPage = await db.Products.GroupBy(p => p.PageId).Select(g => new { Count = g.Count(), Names = g.Select(x => x.Name).Distinct().Count() }).ToListAsync();
+        Assert.Equal(o.Pages, perPage.Count);
+        Assert.All(perPage, n => { Assert.Equal(50, n.Count); Assert.Equal(50, n.Names); });
+        // Almost all pages are verified and receiving; the few others are not receiving.
+        Assert.True(await db.Pages.CountAsync(p => p.Status == PageStatus.Verified) >= o.Pages * 0.95);
+        Assert.False(await db.Pages.AnyAsync(p => p.Receiving != (p.Status == PageStatus.Verified)));
 
         // The QA demo scenario must not be mixed into live data.
         Assert.False(await db.Pages.AnyAsync(p => p.InstagramHandle == "nahr.store"));
@@ -66,7 +70,120 @@ public class LiveSeederTests(LiveSeedApiFactory factory) : IClassFixture<LiveSee
         Assert.True(await db.Pages.MinAsync(p => p.CreatedAt) < DateTime.UtcNow.AddDays(-60));
         // Wallet balances match the ledger.
         var ledger = await db.LedgerEntries.GroupBy(l => l.PageId).Select(g => new { g.Key, Sum = g.Sum(x => x.Amount) }).ToDictionaryAsync(x => x.Key, x => x.Sum);
-        Assert.All(await db.Pages.Select(p => new { p.Id, p.Balance }).ToListAsync(), p => Assert.Equal(ledger.GetValueOrDefault(p.Id), p.Balance));
+        Assert.All(await db.Pages.Select(p => new { p.Id, p.Balance }).ToListAsync(), p =>
+        {
+            Assert.Equal(LiveDataSeeder.PageBalance, p.Balance);
+            Assert.Equal(ledger.GetValueOrDefault(p.Id), p.Balance);
+        });
+        // Every page customers can see has followers.
+        var followed = await db.PageFollows.Select(f => f.PageId).Distinct().ToListAsync();
+        Assert.All(await db.Pages.Where(p => p.Status == PageStatus.Verified || p.Status == PageStatus.Suspended).Select(p => p.Id).ToListAsync(),
+            id => Assert.Contains(id, followed));
+    }
+
+    [Fact]
+    public async Task Showcase_page_leads_products_offers_and_store_orders()
+    {
+        var (scope, db, _, _) = await OpenAsync();
+        await using var __ = scope;
+        var showcase = await db.Pages.SingleAsync(p => p.InstagramHandle == LiveDataSeeder.ShowcaseHandle);
+        Assert.Equal(LiveDataSeeder.ShowcaseName, showcase.Name);
+        Assert.True(showcase.IsActive(DateTime.UtcNow));
+        Assert.True(showcase.Receiving);
+        Assert.Equal(1, showcase.FeaturedOrder);
+
+        var offers = await db.Offers.GroupBy(x => x.PageId).Select(g => new { g.Key, N = g.Count() }).ToListAsync();
+        var orders = await db.StoreOrders.GroupBy(x => x.PageId).Select(g => new { g.Key, N = g.Count() }).ToListAsync();
+        Assert.Equal(offers.Max(x => x.N), offers.Single(x => x.Key == showcase.Id).N);
+        Assert.Equal(orders.Max(x => x.N), orders.Single(x => x.Key == showcase.Id).N);
+        Assert.True(await db.Offers.CountAsync(x => x.PageId == showcase.Id && x.Status == OfferStatus.Selected) >= 3);
+        Assert.True(await db.PageFollows.CountAsync(f => f.PageId == showcase.Id) > 0);
+        Assert.True(await db.SellerAccounts.AnyAsync(a => a.PageId == showcase.Id && a.Email == LiveDataSeeder.ShowcaseSellerEmail));
+        Assert.Equal([AdSlot.HomeBanner, AdSlot.FeaturedPage, AdSlot.SponsoredOffer],
+            (await db.AdCampaigns.Where(a => a.PageId == showcase.Id).Select(a => a.Slot).ToListAsync()).Order());
+
+        // The owner signs in to the app with the phone and the seeded password (no SMS needed).
+        var c = factory.CreateClient();
+        var login = await c.PostAsJsonAsync("/api/v1/auth/login", new { phone = LiveDataSeeder.ShowcasePhone, password = "seller-pass-123", role = "page", deviceId = "test-device" });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+    }
+
+    [Fact]
+    public async Task Ads_cover_every_slot_owner_and_status_and_are_paid_from_the_ledger()
+    {
+        var (scope, db, _, o) = await OpenAsync();
+        await using var __ = scope;
+        var ads = await db.AdCampaigns.AsNoTracking().ToListAsync();
+        Assert.Equal(o.Ads, ads.Count);
+        Assert.Equal(Enum.GetValues<AdSlot>().Order(), ads.Select(a => a.Slot).Distinct().Order());
+        Assert.Equal(Enum.GetValues<AdOwnerType>().Order(), ads.Select(a => a.OwnerType).Distinct().Order());
+        Assert.Equal(Enum.GetValues<AdStatus>().Order(), ads.Select(a => a.Status).Distinct().Order());
+        var now = DateTime.UtcNow;
+        Assert.True(ads.Count(a => a.Status == AdStatus.Active && a.StartAt <= now && a.EndAt > now) >= ads.Count / 2);
+        Assert.Contains(ads, a => a.Status == AdStatus.Active && a.StartAt > now);
+        // Brand and platform ads are home banners without a page; featured and sponsored ads always belong to a page.
+        Assert.All(ads.Where(a => a.OwnerType != AdOwnerType.Page), a => { Assert.Equal(AdSlot.HomeBanner, a.Slot); Assert.Null(a.PageId); });
+        Assert.All(ads.Where(a => a.OwnerType == AdOwnerType.Page), a => Assert.NotNull(a.PageId));
+        Assert.All(ads.Where(a => a.Status == AdStatus.Ended), a => Assert.True(a.EndAt <= now));
+
+        // Prepaid page ads carry an AdCharge entry; rejected ones were refunded; paused-for-balance ones never paid.
+        var entries = await db.LedgerEntries.Where(e => e.RefId != null).ToListAsync();
+        foreach (var a in ads.Where(a => a.PageId != null))
+        {
+            var charged = entries.Where(e => e.RefId == a.Id && e.Type == LedgerType.AdCharge).Sum(e => e.Amount);
+            var refunded = entries.Where(e => e.RefId == a.Id && e.Type == LedgerType.AdRefund).Sum(e => e.Amount);
+            if (a.Status == AdStatus.PausedBalance) { Assert.Equal(0, charged); Assert.Null(a.LastChargedOn); continue; }
+            Assert.True(charged < 0);
+            Assert.NotNull(a.LastChargedOn);
+            if (a.Status == AdStatus.Rejected) Assert.Equal(0, charged + refunded);
+        }
+
+        // Sponsored offers follow the OfferService rule: one per request, pinned on the request.
+        var sponsored = await db.Offers.Where(x => x.Sponsored).Select(x => new { x.Id, x.RequestId }).ToListAsync();
+        Assert.NotEmpty(sponsored);
+        var pinned = await db.Requests.Where(r => r.SponsoredOfferId != null).ToDictionaryAsync(r => r.Id, r => r.SponsoredOfferId);
+        Assert.All(sponsored, x => Assert.Equal(x.Id, pinned[x.RequestId]));
+    }
+
+    [Fact]
+    public async Task Catalog_has_every_category_slug_and_seeding_keeps_admin_edits()
+    {
+        var (scope, db, _, _) = await OpenAsync();
+        await using var __ = scope;
+        string[] slugs = ["phones", "shoes", "clothes", "perfumes", "watches", "care", "home", "electronics", "gifts", "furniture", "appliances",
+            "gaming", "car-parts", "kids", "sports", "books", "beauty", "pharmacy", "food", "flowers", "pets", "tools"];
+        var have = await db.Categories.Select(c => c.Slug).ToListAsync();
+        Assert.All(slugs, s => Assert.Contains(s, have));
+
+        var furniture = await db.Categories.SingleAsync(c => c.Slug == "furniture");
+        furniture.Name = "أثاث ومفروشات";
+        await db.SaveChangesAsync();
+        var count = await db.Categories.CountAsync();
+        await scope.ServiceProvider.GetRequiredService<Seeder>().RunAsync();
+        db.ChangeTracker.Clear();
+        Assert.Equal(count, await db.Categories.CountAsync());
+        var edited = await db.Categories.SingleAsync(c => c.Slug == "furniture");
+        Assert.Equal("أثاث ومفروشات", edited.Name);
+        edited.Name = "أثاث";
+        await db.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task Older_marker_version_triggers_one_reseed_on_startup()
+    {
+        var (scope, db, seeder, _) = await OpenAsync();
+        await using var _ = scope;
+        var marker = await db.Settings.SingleAsync(s => s.Id == LiveDataSeeder.MarkerId);
+        marker.Data = marker.Data.Replace(LiveDataSeeder.MarkerName, "live-seed-v1");
+        await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        Assert.False(await seeder.MarkerExistsAsync());
+
+        var first = await seeder.RunOnStartupAsync();
+        Assert.False(first.Skipped);
+        Assert.True(await seeder.MarkerExistsAsync());
+        var second = await seeder.RunOnStartupAsync();
+        Assert.True(second.Skipped);
     }
 
     [Fact]
