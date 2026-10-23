@@ -1,0 +1,97 @@
+using Dawwerli.Infrastructure.Persistence;
+using Dawwerli.Infrastructure.Persistence.LiveSeed;
+using Microsoft.Extensions.Options;
+using Npgsql;
+
+namespace Dawwerli.Api.Infrastructure;
+
+/// <summary>
+/// <c>dotnet Dawwerli.Api.dll seed-live [--wipe] [--confirm] [--dry-run] [--seed 42] [counts]</c>:
+/// wipes non-admin data and seeds live-looking data, then exits without starting the web host.
+/// </summary>
+public static class LiveSeedCommand
+{
+    public const string Name = "seed-live";
+
+    private static readonly Dictionary<string, Action<LiveSeedOptions, int>> Counts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["--seed"] = (o, v) => o.RandomSeed = v,
+        ["--pages"] = (o, v) => o.Pages = v,
+        ["--product-pages"] = (o, v) => o.ProductPages = v,
+        ["--products-min"] = (o, v) => o.MinProductsPerPage = v,
+        ["--products-max"] = (o, v) => o.MaxProductsPerPage = v,
+        ["--customers"] = (o, v) => o.Customers = v,
+        ["--offers"] = (o, v) => o.Offers = v,
+        ["--store-orders"] = (o, v) => o.StoreOrders = v,
+        ["--banners"] = (o, v) => o.Banners = v,
+        ["--featured-ads"] = (o, v) => o.FeaturedAds = v,
+        ["--featured-pages"] = (o, v) => o.FeaturedPages = v,
+        ["--history-days"] = (o, v) => o.HistoryDays = v,
+    };
+
+    private const string Usage = """
+        Usage: dotnet Dawwerli.Api.dll seed-live [--wipe] [--confirm] [--dry-run] [--seed 42]
+                 [--pages 500] [--product-pages 100] [--products-min 10] [--products-max 20] [--customers 50]
+                 [--offers 50] [--store-orders 90] [--banners 5] [--featured-ads 4] [--featured-pages 8] [--history-days 180]
+          --dry-run  read-only: print the target database, current counts and the plan
+          --wipe     delete all non-admin data first (admins, settings, catalog and audit log are kept)
+          --confirm  required for anything that writes
+        Defaults come from the "Seed" configuration section. Seller-portal logins are created only when
+        Seed__SellerPassword is set in the environment.
+        """;
+
+    /// <summary>Returns the process exit code: 0 done, 1 refused or failed, 2 bad arguments.</summary>
+    public static async Task<int> RunAsync(IServiceProvider services, IConfiguration config, string[] args)
+    {
+        await using var scope = services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var o = sp.GetRequiredService<IOptions<LiveSeedOptions>>().Value.Copy();
+        bool wipe = false, confirm = false, dryRun = false;
+        for (var i = 0; i < args.Length; i++)
+        {
+            var a = args[i];
+            switch (a.ToLowerInvariant())
+            {
+                case "--wipe": wipe = true; continue;
+                case "--confirm": confirm = true; continue;
+                case "--dry-run": dryRun = true; continue;
+                case "-h" or "--help": Console.WriteLine(Usage); return 0;
+            }
+            if (Counts.TryGetValue(a, out var set) && i + 1 < args.Length && int.TryParse(args[i + 1], out var v)) { set(o, v); i++; continue; }
+            Console.Error.WriteLine($"Unknown or incomplete argument: {a}");
+            Console.Error.WriteLine(Usage);
+            return 2;
+        }
+        if (o.Validate() is { } bad) { Console.Error.WriteLine($"Invalid counts: {bad}"); return 2; }
+
+        var cs = new NpgsqlConnectionStringBuilder(config.GetConnectionString("Default") ?? "");
+        Console.WriteLine($"Target database: host={cs.Host} port={cs.Port} db={cs.Database} user={cs.Username}");
+
+        var seeder = sp.GetRequiredService<LiveDataSeeder>();
+        if (dryRun)
+        {
+            Console.WriteLine($"Dry run (nothing is written). wipe={wipe}");
+            Console.WriteLine(await seeder.DescribeAsync(o));
+            return 0;
+        }
+        if (!confirm)
+        {
+            Console.Error.WriteLine("Refusing to write without --confirm. Check the target above, take a backup, then add --confirm (or use --dry-run).");
+            return 1;
+        }
+
+        // Migrations + reference catalog + admin, without the demo scenario or the startup live seed.
+        await sp.GetRequiredService<Seeder>().RunAsync(includeDemoData: false);
+        Console.WriteLine(wipe ? "Wiping non-admin data and seeding..." : "Seeding (no wipe)...");
+        var report = await seeder.RunAsync(o, wipe, onlyIfNoMarker: false);
+        if (report.Skipped)
+        {
+            Console.Error.WriteLine($"Nothing done: {report.Message}.");
+            return 1;
+        }
+        foreach (var (table, rows) in report.Wiped) Console.WriteLine($"  wiped {table,-24} {rows,7}");
+        foreach (var (table, rows) in report.Created) Console.WriteLine($"  created {table,-22} {rows,7}");
+        Console.WriteLine($"Done in {report.Elapsed.TotalSeconds:F1}s. Marker {LiveDataSeeder.MarkerName} written.");
+        return 0;
+    }
+}

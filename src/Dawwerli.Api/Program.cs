@@ -14,7 +14,9 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Npgsql;
 
-var builder = WebApplication.CreateBuilder(args);
+// `seed-live ...` runs the live data seeder and exits; its flags are kept out of the configuration.
+var seedLiveArgs = args.Length > 0 && args[0] == LiveSeedCommand.Name ? args[1..] : null;
+var builder = WebApplication.CreateBuilder(seedLiveArgs is null ? args : []);
 var config = builder.Configuration;
 // Store defaults ship with the code; appsettings.json / environment still win when they set the same keys.
 config.Sources.Insert(0, new Microsoft.Extensions.Configuration.Json.JsonConfigurationSource
@@ -148,6 +150,12 @@ app.MapGet("/c/{token}", (HttpContext ctx) =>
     return Results.File(courierPage, "text/html; charset=utf-8");
 }).AllowAnonymous().RequireRateLimiting(RateLimitPolicies.Track);
 app.MapFallback("/seller/{*path:nonfile}", SellerHtml);
+
+if (seedLiveArgs is not null)
+{
+    Environment.ExitCode = await LiveSeedCommand.RunAsync(app.Services, config, seedLiveArgs);
+    return;
+}
 
 if (config.GetValue("Database:MigrateAndSeedOnStartup", true))
 {

@@ -1,5 +1,6 @@
 using Dawwerli.Application.Abstractions;
 using Dawwerli.Domain.Entities;
+using Dawwerli.Infrastructure.Persistence.LiveSeed;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -13,6 +14,8 @@ public sealed class ScenarioSeeder(AppDbContext db, IStorage storage, IPhoneProt
     public async Task RunAsync(CancellationToken ct = default)
     {
         if (await db.Pages.AnyAsync(p => p.InstagramHandle == Marker, ct)) return;
+        // A database holding live seed data must not get the QA demo accounts mixed in.
+        if (await db.Settings.AnyAsync(s => s.Id == LiveDataSeeder.MarkerId, ct)) return;
 
         var now = clock.UtcNow;
         var gov = await db.Governorates.ToDictionaryAsync(g => g.Name, g => g.Id, ct);

@@ -1,5 +1,6 @@
 using Dawwerli.Application.Abstractions;
 using Dawwerli.Infrastructure.Persistence;
+using Dawwerli.Infrastructure.Persistence.LiveSeed;
 using Dawwerli.Infrastructure.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
@@ -49,6 +50,8 @@ public static class DependencyInjection
         services.AddSingleton<ISellerTokenService, SellerTokenService>();
         // Swap in a real gateway here once Payments:Provider has credentials.
         services.AddSingleton<IPaymentProvider, UnconfiguredPaymentProvider>();
+        services.Configure<LiveSeedOptions>(config.GetSection(LiveSeedOptions.Section));
+        services.AddScoped<LiveDataSeeder>();
         services.AddScoped<ScenarioSeeder>();
         services.AddScoped<Seeder>();
 
